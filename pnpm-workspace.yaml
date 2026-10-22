@@ -1,0 +1,7 @@
+packages:
+  - vendor/t3code/*
+
+allowBuilds:
+  electron: true
+  electron-winstaller: false
+  esbuild: true

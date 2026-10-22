@@ -1,0 +1,44 @@
+{
+  "name": "t3-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chat with a T3 Code thread from Slack. The thread acts as an orchestrator that hands work to subagents.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "productName": "T3 Bridge",
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "tsdown && vite build --config vite.renderer.config.ts",
+    "start": "node scripts/start.mjs",
+    "dist": "node scripts/dist.mjs",
+    "install-worker": "node scripts/install-worker.mjs",
+    "sync-t3code": "node scripts/sync-t3code.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@slack/socket-mode": "3.1.0",
+    "@slack/web-api": "8.2.0",
+    "@t3tools/contracts": "workspace:*",
+    "@t3tools/shared": "workspace:*",
+    "effect": "4.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "44.4.5",
+    "electron-builder": "26.16.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsdown": "^0.23.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}
