@@ -57,6 +57,17 @@ FS.writeFileSync(
     <string>${escape(Path.join(installedApp, "Contents", "MacOS", "T3 Bridge"))}</string>
     <string>--hidden</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- The control panel's Update button rebuilds from this checkout with git, node and pnpm. -->
+    <key>T3_BRIDGE_SOURCE</key>
+    <string>${escape(root)}</string>
+    <key>PATH</key>
+    <string>${escape(process.env.PATH ?? "/usr/bin:/bin")}</string>
+  </dict>
+  <!-- An update reinstalls this job; the updater it starts must outlive the old process. -->
+  <key>AbandonProcessGroup</key>
+  <true/>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

@@ -6,6 +6,7 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell, Tray 
 import { ControlServer } from "../engine/api/ControlServer.ts";
 import { Engine } from "../engine/Engine.ts";
 import { FileSecretStore } from "../engine/store.ts";
+import { Updater } from "../engine/updater.ts";
 import { renderHtmlToPng } from "./htmlSnapshot.ts";
 import { trayIcon } from "./trayIcon.ts";
 
@@ -52,7 +53,7 @@ async function startEngine() {
       : {}),
   });
   const config = await engine.start();
-  server = new ControlServer({ engine, staticDir: rendererDir, downloadsDir });
+  server = new ControlServer({ engine, staticDir: rendererDir, downloadsDir, updater: new Updater(dataDir) });
   await server.start(config.controlPort);
 }
 

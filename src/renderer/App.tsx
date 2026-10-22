@@ -15,6 +15,8 @@ import {
   type Status,
   type Target,
   type ThreadSummary,
+  type UpdateCheck,
+  type UpdateStatus,
 } from "./api.ts";
 
 export function App() {
@@ -304,6 +306,7 @@ function Dashboard({ api, target, isDesktop }: { api: Api; target: Target; isDes
       </section>
 
       <OtherMacs status={status} api={api} isDesktop={isDesktop} />
+      <Updates api={api} />
       <Logs api={api} />
     </div>
   );
@@ -469,6 +472,125 @@ function OtherMacs({ status, api, isDesktop }: { status: Status; api: Api; isDes
           ))}
         </p>
       )}
+    </section>
+  );
+}
+
+/** Pull, rebuild and reinstall the worker from GitHub, without a terminal. */
+function Updates({ api }: { api: Api }) {
+  const [info, setInfo] = useState<{ supported: boolean; current: string | null } | null>(null);
+  const [check, setCheck] = useState<UpdateCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [progress, setProgress] = useState<UpdateStatus | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api.updateInfo().then((result) => {
+      setInfo(result);
+      const status = result.status;
+      if (status && (status.state === "running" || status.state === "restarting")) {
+        setStartedAt(Date.parse(status.startedAt));
+        setProgress(status);
+      }
+    });
+  }, [api]);
+
+  // While updating, the worker restarts and briefly stops answering; keep asking until the
+  // new one reports the update finished, then reload to get its control panel.
+  useEffect(() => {
+    if (startedAt === null) return;
+    const timer = setInterval(() => {
+      void api
+        .updateInfo()
+        .then((result) => {
+          const status = result.status;
+          if (status === null || Date.parse(status.startedAt) < startedAt - 5000) return;
+          setProgress(status);
+          if (status.state === "done") location.reload();
+          if (status.state === "failed") setStartedAt(null);
+        })
+        .catch(() => setProgress((current) => current && { ...current, step: "Restarting the worker" }));
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [api, startedAt]);
+
+  if (info === null || !info.supported) return null;
+
+  const runCheck = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      setCheck(await api.checkUpdate());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const update = async () => {
+    setError(null);
+    try {
+      setStartedAt(Date.now());
+      setProgress({ state: "running", step: "Starting", from: "", to: null, error: null, startedAt: new Date().toISOString(), finishedAt: null });
+      await api.startUpdate();
+    } catch (cause) {
+      setStartedAt(null);
+      setProgress(null);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const updating = startedAt !== null;
+  return (
+    <section className="card">
+      <div className="row spread">
+        <div>
+          <h2>Updates</h2>
+          <p className="muted small">Installed: {info.current ?? "unknown"}</p>
+        </div>
+        {!updating && (
+          <button className="button" disabled={checking} onClick={() => void runCheck()}>
+            {checking ? "Checking…" : "Check for updates"}
+          </button>
+        )}
+      </div>
+      {updating && progress && (
+        <p>
+          ⏳ {progress.step}… <span className="muted small">The bots pause for about a minute while the worker restarts.</span>
+        </p>
+      )}
+      {!updating && progress?.state === "failed" && (
+        <p className="error-text">
+          The update failed: {progress.error}. Details are in update.log in the worker's T3 Bridge data folder.
+        </p>
+      )}
+      {!updating && check && (
+        <>
+          {check.reason && <p className="error-text small">{check.reason}</p>}
+          {check.changes.length === 0 ? (
+            <p className="ok-text">You're on the latest version.</p>
+          ) : (
+            <>
+              <p>
+                {check.changes.length} new change{check.changes.length === 1 ? "" : "s"} ({check.latest}):
+              </p>
+              <ul className="changes">
+                {check.changes.slice(0, 15).map((change) => (
+                  <li key={change}>{change}</li>
+                ))}
+              </ul>
+              <div className="row gap">
+                <button className="button primary" disabled={!check.available} onClick={() => void update()}>
+                  Update now
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
+      {error && <p className="error-text small">{error}</p>}
     </section>
   );
 }

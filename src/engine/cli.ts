@@ -28,6 +28,7 @@ const server = new ControlServer({
   engine,
   staticDir: process.env.T3_BRIDGE_STATIC ?? null,
   downloadsDir: null,
+  updater: null,
 });
 void engine.start().then(async (config) => {
   await server.start(config.controlPort);

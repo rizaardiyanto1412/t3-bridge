@@ -106,6 +106,13 @@ export function makeApi(target: Target) {
     removeBot: (id: string) => call<unknown>("DELETE", `/api/bots/${id}`),
     newThread: (id: string) =>
       call<{ threadId: string; title: string }>("POST", `/api/bots/${id}/new-thread`),
+    updateInfo: () =>
+      call<{ supported: boolean; current: string | null; status: UpdateStatus | null }>(
+        "GET",
+        "/api/update",
+      ),
+    checkUpdate: () => call<UpdateCheck>("POST", "/api/update/check"),
+    startUpdate: () => call<{ started: boolean }>("POST", "/api/update/start"),
     rotateLink: () =>
       call<{ token: string; connectLinks: string[] }>("POST", "/api/control/rotate"),
     downloadUrl: (name: string) => `${target.baseUrl}/downloads/${encodeURIComponent(name)}`,
@@ -178,6 +185,24 @@ export interface Status {
   readonly bots: ReadonlyArray<BotStatus>;
   readonly connectLinks: ReadonlyArray<string>;
   readonly downloads: ReadonlyArray<string>;
+}
+
+export interface UpdateCheck {
+  readonly available: boolean;
+  readonly current: string | null;
+  readonly latest: string | null;
+  readonly changes: ReadonlyArray<string>;
+  readonly reason: string | null;
+}
+
+export interface UpdateStatus {
+  readonly state: "running" | "restarting" | "done" | "failed";
+  readonly step: string;
+  readonly from: string;
+  readonly to: string | null;
+  readonly error: string | null;
+  readonly startedAt: string;
+  readonly finishedAt: string | null;
 }
 
 export interface LogEntry {

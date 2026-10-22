@@ -8,6 +8,7 @@ import { slackManifest } from "../adapters/slack/manifest.ts";
 import { testSlackTokens } from "../adapters/slack/SlackAdapter.ts";
 import { DEFAULT_INSTRUCTIONS } from "../core/render.ts";
 import { NotFoundError, type BotInput, type Engine } from "../Engine.ts";
+import type { Updater } from "../updater.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -47,6 +48,7 @@ export interface ControlServerOptions {
   readonly staticDir: string | null;
   /** Installers offered for download from the worker, e.g. the .dmg. */
   readonly downloadsDir: string | null;
+  readonly updater: Updater | null;
 }
 
 /**
@@ -155,6 +157,7 @@ export class ControlServer {
         connectLinks: this.connectLinks(),
         downloads: await this.downloads(),
       };
+    if (path.startsWith("/api/update")) return this.routeUpdate(method, path);
     if (method === "GET" && path === "/api/logs")
       return { entries: engine.log.entries().slice(-200) };
     if (method === "GET" && path === "/api/defaults") return { instructions: DEFAULT_INSTRUCTIONS };
@@ -177,6 +180,21 @@ export class ControlServer {
     if (botMatch !== null) {
       if (method === "PATCH") return engine.updateBot(botMatch[1]!, body as Partial<BotInput>);
       if (method === "DELETE") return engine.removeBot(botMatch[1]!);
+    }
+    throw new HttpError(404, `No route ${method} ${path}`);
+  }
+
+  private async routeUpdate(method: string, path: string): Promise<unknown> {
+    const updater = this.options.updater;
+    if (method === "GET" && path === "/api/update") {
+      return { supported: updater !== null, current: await updater?.current() ?? null, status: await updater?.status() ?? null };
+    }
+    if (updater === null) throw new HttpError(400, "Updating is only available on a worker installed with install-worker.");
+    if (method === "POST" && path === "/api/update/check") return updater.check();
+    if (method === "POST" && path === "/api/update/start") {
+      await updater.start();
+      this.options.engine.log.info("Update started from the control panel");
+      return { started: true };
     }
     throw new HttpError(404, `No route ${method} ${path}`);
   }
