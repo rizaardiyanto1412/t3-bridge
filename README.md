@@ -35,7 +35,9 @@ pnpm dist             # builds release/T3 Bridge.app and a .dmg
 pnpm install-worker   # installs to ~/Applications and starts it under launchd
 ```
 
-To update, `git pull` and run `pnpm dist && pnpm install-worker` again. Logs are in `~/Library/Logs/T3 Bridge.log`.
+To update, open the control panel's **Updates** card, choose **Check for updates**, then
+**Update now**. It pulls, rebuilds and restarts the worker; the bots pause for about a minute.
+From a terminal, the same is `git pull && pnpm dist && pnpm install-worker`. Logs are in `~/Library/Logs/T3 Bridge.log`.
 
 To get the link for another Mac, open the worker's control panel (menu bar icon → **Copy link
 for another Mac**) or read it from `~/Library/Application Support/T3 Bridge/config.json`:
