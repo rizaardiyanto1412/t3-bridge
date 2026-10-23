@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AddBot } from "./AddBot.tsx";
-import { makeApi, pageTarget, type Api, type BotStatus, type Status } from "./api.ts";
+import {
+  makeApi,
+  pageTarget,
+  PLATFORM_NAMES,
+  type Api,
+  type BotStatus,
+  type Platform,
+  type Status,
+} from "./api.ts";
 import { BotView } from "./BotView.tsx";
 import { SettingsView } from "./SettingsView.tsx";
 import {
@@ -141,10 +149,10 @@ function Shell({ api }: { api: Api }) {
         )}
         {route.page === "home" && status.bots.length === 0 && (
           <div className="page empty">
-            <h1>Connect T3 to Slack</h1>
+            <h1>Connect T3 to your chat app</h1>
             <p>
-              A bot is one Slack app talking to one T3 thread. That thread is the orchestrator: it
-              hands the real work to subagents and reports back in Slack.
+              A bot is one Slack, Discord or Telegram bot talking to one T3 thread. That thread is
+              the orchestrator: it hands the real work to subagents and reports back in chat.
             </p>
             <button className="btn primary" onClick={() => go({ page: "add" })}>
               Add your first bot
@@ -155,6 +163,8 @@ function Shell({ api }: { api: Api }) {
     </div>
   );
 }
+
+const PLATFORMS: ReadonlyArray<Platform> = ["slack", "discord", "telegram"];
 
 function Sidebar({ status, route, lostContact }: { status: Status; route: Route; lostContact: string | null }) {
   const t3 = status.t3;
@@ -171,17 +181,25 @@ function Sidebar({ status, route, lostContact }: { status: Status; route: Route;
       </div>
       <div className="sidebar-list">
         {status.bots.length === 0 ? (
-          <div className="empty-list">No bots yet. Add one to chat with a T3 thread from Slack.</div>
+          <div className="empty-list">
+            No bots yet. Add one to chat with a T3 thread from Slack, Discord or Telegram.
+          </div>
         ) : (
-          <>
-            <div className="group">
-              <PlatformIcon />
-              Slack
-            </div>
-            {status.bots.map((bot) => (
-              <BotItem key={bot.id} bot={bot} selected={route.page === "bot" && route.id === bot.id} />
-            ))}
-          </>
+          PLATFORMS.filter((platform) => status.bots.some((bot) => bot.platform === platform)).map(
+            (platform) => (
+              <div key={platform}>
+                <div className="group">
+                  <PlatformIcon platform={platform} />
+                  {PLATFORM_NAMES[platform]}
+                </div>
+                {status.bots
+                  .filter((bot) => bot.platform === platform)
+                  .map((bot) => (
+                    <BotItem key={bot.id} bot={bot} selected={route.page === "bot" && route.id === bot.id} />
+                  ))}
+              </div>
+            ),
+          )
         )}
       </div>
       <div className="sidebar-foot">

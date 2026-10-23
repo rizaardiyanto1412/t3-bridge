@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 
-import type { Api, BotStatus, ModelSelection, Project, ThreadSummary } from "./api.ts";
+import {
+  PLATFORM_NAMES,
+  type Api,
+  type BotStatus,
+  type ModelSelection,
+  type Platform,
+  type Project,
+  type ThreadSummary,
+} from "./api.ts";
 
 export type Threads = { projects: Project[]; threads: ThreadSummary[] };
 
@@ -39,8 +47,12 @@ export const HEALTH_LABEL: Record<Health, string> = {
   off: "Turned off",
 };
 
-export function PlatformIcon({ large = false }: { large?: boolean }) {
-  return <span className={`platform slack${large ? " lg" : ""}`}>S</span>;
+export function PlatformIcon({ platform, large = false }: { platform: Platform; large?: boolean }) {
+  return (
+    <span className={`platform ${platform}${large ? " lg" : ""}`} title={PLATFORM_NAMES[platform]}>
+      {PLATFORM_NAMES[platform].slice(0, 1)}
+    </span>
+  );
 }
 
 export function BridgeMark() {

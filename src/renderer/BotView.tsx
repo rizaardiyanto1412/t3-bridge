@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { ActivityEntry, Api, BotStatus } from "./api.ts";
+import { PLATFORM_NAMES, type ActivityEntry, type Api, type BotStatus } from "./api.ts";
 import {
   ago,
   botHealth,
@@ -14,7 +14,16 @@ import {
   type Threads,
 } from "./shared.tsx";
 
-type Tab = "conversation" | "settings" | "slack";
+type Tab = "conversation" | "settings" | "platform";
+
+const PLATFORM_TAB = { slack: "Slack app", discord: "Discord bot", telegram: "Telegram bot" } as const;
+
+/** Where people find their user id, for the list of who may use the bot. */
+const USER_ID_HINT = {
+  slack: "Slack member IDs (profile → ⋯ → Copy member ID)",
+  discord: "Discord user IDs (turn on Developer Mode, then right-click a person → Copy User ID)",
+  telegram: "Telegram user IDs (numbers; the bot tells people theirs when it turns them away)",
+} as const;
 
 export function BotView(props: {
   api: Api;
@@ -25,7 +34,7 @@ export function BotView(props: {
   onChanged: () => void;
 }) {
   const { api, bot } = props;
-  const [tab, setTab] = useState<Tab>(bot.manifestOutdated ? "slack" : "conversation");
+  const [tab, setTab] = useState<Tab>(bot.manifestOutdated ? "platform" : "conversation");
   const thread = props.threads?.threads.find((candidate) => candidate.id === bot.threadId);
   const health = botHealth(bot);
 
@@ -35,7 +44,7 @@ export function BotView(props: {
         <button className="btn ghost icon back" onClick={() => go({ page: "home" })} aria-label="Back">
           ←
         </button>
-        <PlatformIcon large />
+        <PlatformIcon platform={bot.platform} large />
         <div className="grow">
           <h1>{bot.name}</h1>
           <div className="subtitle">
@@ -61,7 +70,7 @@ export function BotView(props: {
           [
             ["conversation", "Conversation"],
             ["settings", "Settings"],
-            ["slack", bot.manifestOutdated ? "Slack app •" : "Slack app"],
+            ["platform", `${PLATFORM_TAB[bot.platform]}${bot.manifestOutdated ? " •" : ""}`],
           ] as const
         ).map(([id, label]) => (
           <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
@@ -77,7 +86,7 @@ export function BotView(props: {
         </div>
       )}
 
-      {tab === "conversation" && <Conversation api={api} bot={bot} onUpdateSlack={() => setTab("slack")} />}
+      {tab === "conversation" && <Conversation api={api} bot={bot} onUpdateSlack={() => setTab("platform")} />}
       {tab === "settings" && (
         <BotSettings
           api={api}
@@ -87,8 +96,11 @@ export function BotView(props: {
           onSaved={props.onChanged}
         />
       )}
-      {tab === "slack" && (
+      {tab === "platform" && bot.platform === "slack" && (
         <SlackTab api={api} bot={bot} manifestVersion={props.manifestVersion} onSaved={props.onChanged} />
+      )}
+      {tab === "platform" && bot.platform !== "slack" && (
+        <TokenTab api={api} bot={bot} onSaved={props.onChanged} />
       )}
     </div>
   );
@@ -133,7 +145,7 @@ function BotMenu(props: { api: Api; bot: BotStatus; onChanged: () => void; reloa
           <button
             className="danger"
             onClick={act(async () => {
-              if (!confirm(`Remove ${bot.name}? The Slack app stays in Slack; T3 Bridge forgets its tokens.`)) return;
+              if (!confirm(`Remove ${bot.name}? The bot stays in ${PLATFORM_NAMES[bot.platform]}; T3 Bridge forgets its token.`)) return;
               await api.removeBot(bot.id);
               go({ page: "home" });
             })}
@@ -193,7 +205,7 @@ function Conversation({ api, bot, onUpdateSlack }: { api: Api; bot: BotStatus; o
         <p className="muted">Loading…</p>
       ) : entries.length === 0 ? (
         <div className="empty">
-          Nothing yet. Message {bot.name} in Slack and the conversation shows up here.
+          Nothing yet. Message {bot.name} in {PLATFORM_NAMES[bot.platform]} and the conversation shows up here.
           {bot.allowedUserIds.length === 0 && (
             <>
               <br />
@@ -204,7 +216,7 @@ function Conversation({ api, bot, onUpdateSlack }: { api: Api; bot: BotStatus; o
       ) : (
         <div className="feed">
           {entries.map((entry) => (
-            <Request key={entry.id} entry={entry} botName={bot.name} />
+            <Request key={entry.id} entry={entry} botName={bot.name} platform={PLATFORM_NAMES[bot.platform]} />
           ))}
         </div>
       )}
@@ -212,15 +224,15 @@ function Conversation({ api, bot, onUpdateSlack }: { api: Api; bot: BotStatus; o
   );
 }
 
-function Request({ entry, botName }: { entry: ActivityEntry; botName: string }) {
+function Request({ entry, botName, platform }: { entry: ActivityEntry; botName: string; platform: string }) {
   const done = entry.subagents.filter((task) => task.status === "completed").length;
   const active = entry.status === "running" || entry.subagents.some((task) => ["pending", "running", "waiting"].includes(task.status));
   const state = entry.error
     ? { tone: "bad", text: entry.error }
     : entry.waiting === "approval"
-      ? { tone: "waiting", text: "Waiting for your approval in Slack" }
+      ? { tone: "waiting", text: `Waiting for your approval in ${platform}` }
       : entry.waiting === "question"
-        ? { tone: "waiting", text: "Waiting for your answer in Slack" }
+        ? { tone: "waiting", text: `Waiting for your answer in ${platform}` }
         : active
           ? { tone: "working", text: "Working" }
           : entry.status === "failed"
@@ -335,7 +347,7 @@ function BotSettings(props: {
       </div>
       <label className="field">
         <span>
-          Who may use it <span className="hint">· Slack member IDs (profile → ⋯ → Copy member ID)</span>
+          Who may use it <span className="hint">· {USER_ID_HINT[bot.platform]}</span>
         </span>
         <input
           className="input mono"
@@ -462,6 +474,90 @@ function SlackTab(props: { api: Api; bot: BotStatus; manifestVersion: number; on
             disabled={busy || !botToken.trim().startsWith("xoxb-") || !appToken.trim().startsWith("xapp-")}
             onClick={() => void replaceTokens()}
           >
+            Check and save
+          </button>
+          {message && <span className={message.ok ? "ok-text small" : "error-text small"}>{message.text}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Discord and Telegram bots ─────────────────────────────────────────────
+
+function TokenTab(props: { api: Api; bot: BotStatus; onSaved: () => void }) {
+  const { api, bot } = props;
+  const platform = bot.platform as "discord" | "telegram";
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const replaceToken = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const input = { botToken: token.trim() };
+      const result = platform === "discord" ? await api.testDiscord(input) : await api.testTelegram(input);
+      await api.updateBot(bot.id, { [platform]: input });
+      setToken("");
+      setMessage({ ok: true, text: `✓ Now ${result.botUser}` });
+      props.onSaved();
+    } catch (cause) {
+      setMessage({ ok: false, text: errorText(cause) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="stack">
+      <div className="card stack tight">
+        <h2>{PLATFORM_TAB[platform]}</h2>
+        <p className="muted small" style={{ margin: 0 }}>
+          {bot.connection.identity ?? HEALTH_LABEL[botHealth(bot)]}.
+        </p>
+        {platform === "discord" ? (
+          <p className="small" style={{ margin: 0 }}>
+            People can message the bot once it shares a server with them. In a channel, mention it
+            (<code>@{bot.account?.username ?? bot.name}</code>) or reply to one of its messages.
+            {bot.chatLink && (
+              <>
+                {" "}
+                <a href={bot.chatLink} target="_blank" rel="noreferrer">
+                  Add it to a server ↗
+                </a>
+              </>
+            )}
+          </p>
+        ) : (
+          <p className="small" style={{ margin: 0 }}>
+            Message the bot directly, or add it to a group and mention it or reply to its messages.
+            {bot.chatLink && (
+              <>
+                {" "}
+                <a href={bot.chatLink} target="_blank" rel="noreferrer">
+                  Open in Telegram ↗
+                </a>
+              </>
+            )}
+          </p>
+        )}
+      </div>
+      <div className="card stack tight">
+        <h2>Replace token</h2>
+        <p className="muted small" style={{ margin: 0 }}>
+          {platform === "discord"
+            ? "Only needed if you reset the token in the Discord developer portal."
+            : "Only needed if you revoked the token with @BotFather."}
+        </p>
+        <input
+          className="input mono"
+          placeholder={platform === "discord" ? "Bot token" : "123456:ABC…"}
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+        />
+        <div className="row">
+          <button className="btn" disabled={busy || token.trim().length < 20} onClick={() => void replaceToken()}>
             Check and save
           </button>
           {message && <span className={message.ok ? "ok-text small" : "error-text small"}>{message.text}</span>}

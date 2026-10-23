@@ -30,7 +30,8 @@ import {
   withoutMarkdownBlocks,
   type Block,
 } from "./blocks.ts";
-import { canvasPreview, canvasTitle, notificationText, splitMarkdown } from "./format.ts";
+import { reportPreview, reportTitle } from "../../core/markdown.ts";
+import { notificationText, splitSlackMarkdown } from "./format.ts";
 
 interface Content {
   readonly text: string;
@@ -646,7 +647,7 @@ export class SlackAdapter implements ChatAdapter {
 
     const chunks =
       post.kind === "assistant" || post.kind === "echo" || post.kind === "plan"
-        ? splitMarkdown(post.markdown)
+        ? splitSlackMarkdown(post.markdown)
         : [undefined];
     // While streaming only the first chunk is shown; the rest follow once the message is complete.
     const streaming = post.kind === "assistant" && post.streaming;
@@ -817,7 +818,7 @@ export class SlackAdapter implements ChatAdapter {
     markdown: string,
     existingId: string | null,
   ): Promise<{ id: string; url: string; title: string } | null> {
-    const title = canvasTitle(markdown);
+    const title = reportTitle(markdown);
     try {
       let id = existingId;
       if (id === null) {
@@ -881,7 +882,7 @@ export class SlackAdapter implements ChatAdapter {
     existing: MessageRef | null,
     canvas: { id: string; url: string; title: string },
   ): Promise<MessageRef> {
-    const preview = canvasPreview(post.markdown);
+    const preview = reportPreview(post.markdown);
     const link = canvas.url ? `[${canvas.title}](${canvas.url})` : canvas.title;
     const content = {
       text: notificationText(preview),

@@ -68,6 +68,14 @@ export function makeApi(target: Target) {
       call<unknown>("GET", `/api/slack/manifest?name=${encodeURIComponent(name)}`),
     testSlack: (tokens: { botToken: string; appToken: string }) =>
       call<{ team: string; botUser: string }>("POST", "/api/slack/test", tokens),
+    testDiscord: (input: { botToken: string }) =>
+      call<{ botUser: string; inviteUrl: string; messageContent: boolean }>(
+        "POST",
+        "/api/discord/test",
+        input,
+      ),
+    testTelegram: (input: { botToken: string }) =>
+      call<{ botUser: string; link: string }>("POST", "/api/telegram/test", input),
     addBot: (input: BotInput) => call<Bot>("POST", "/api/bots", input),
     updateBot: (id: string, patch: Partial<BotInput>) =>
       call<Bot>("PATCH", `/api/bots/${id}`, patch),
@@ -111,10 +119,19 @@ export interface ThreadSummary {
   readonly updatedAt: string;
 }
 
+export type Platform = "slack" | "discord" | "telegram";
+
+export const PLATFORM_NAMES: Record<Platform, string> = {
+  slack: "Slack",
+  discord: "Discord",
+  telegram: "Telegram",
+};
+
 export interface Bot {
   readonly id: string;
   readonly name: string;
-  readonly platform: "slack";
+  readonly platform: Platform;
+  readonly account?: { readonly username: string; readonly applicationId?: string };
   readonly enabled: boolean;
   readonly threadId: string | null;
   readonly allowedUserIds: ReadonlyArray<string>;
@@ -127,6 +144,8 @@ export interface BotStatus extends Bot {
   readonly connection: { state: string; identity?: string; error?: string };
   readonly lastError: string | null;
   readonly manifestOutdated: boolean;
+  /** Discord's invite to a server, or the bot's t.me link. */
+  readonly chatLink: string | null;
   readonly activity: {
     readonly working: ActivityEntry | null;
     readonly today: number;
@@ -151,8 +170,10 @@ export interface ActivityEntry {
 
 export interface BotInput {
   readonly name: string;
-  readonly platform: "slack";
+  readonly platform: Platform;
   readonly slack?: { botToken: string; appToken: string };
+  readonly discord?: { botToken: string };
+  readonly telegram?: { botToken: string };
   readonly threadId: string | null;
   readonly allowedUserIds?: ReadonlyArray<string>;
   readonly instructions?: string;

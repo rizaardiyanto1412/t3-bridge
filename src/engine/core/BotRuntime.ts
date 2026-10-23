@@ -45,16 +45,17 @@ import {
   newActivity,
   type ActivityEntry,
 } from "./activity.ts";
-import type {
-  AdapterStatus,
-  ChatAdapter,
-  ConversationRef,
-  ImageRef,
-  InboundAction,
-  InboundMessage,
-  MessageRef,
-  OutboundPost,
-  RunStatus,
+import {
+  PlatformError,
+  type AdapterStatus,
+  type ChatAdapter,
+  type ConversationRef,
+  type ImageRef,
+  type InboundAction,
+  type InboundMessage,
+  type MessageRef,
+  type OutboundPost,
+  type RunStatus,
 } from "./types.ts";
 
 interface PostRecord {
@@ -652,9 +653,11 @@ export class BotRuntime {
 
   async handleMessage(message: InboundMessage): Promise<void> {
     const { adapter, log } = this.options;
+    let claimed = false;
     if (!this.isAllowed(message.userId)) {
       if (this.bot.allowedUserIds.length === 0 && message.isDirect) {
         await this.options.claimOwner(message.userId);
+        claimed = true;
         await adapter.reply(
           message,
           `You now own this bot, ${message.userName}. Only you can send it work; add others in T3 Bridge.`,
@@ -667,6 +670,12 @@ export class BotRuntime {
         );
         return;
       }
+    }
+    // Telegram opens every chat with /start; it is a greeting, not work.
+    if (/^\/start(\s|$)/i.test(message.text.trim())) {
+      if (!claimed)
+        await adapter.reply(message, `Hi ${message.userName}. Send me a request and I'll pass it to the agent.`);
+      return;
     }
     // In a shared channel only messages addressed to the bot are work: a mention, or a reply
     // under one of the bot's own posts. Direct messages always are.
@@ -695,7 +704,7 @@ export class BotRuntime {
       await adapter.reply(message, "⏹ Stopping the agent.");
       return;
     }
-    if (/^(!new|new!)$/i.test(text)) {
+    if (/^(!new|new!|\/new)$/i.test(text)) {
       await this.startFreshThread(message);
       return;
     }
@@ -1104,6 +1113,7 @@ const PERMANENT_FAILURES = new Set([
 ]);
 
 function isPermanentFailure(error: unknown) {
+  if (error instanceof PlatformError) return error.permanent;
   const code = (error as { data?: { error?: string } })?.data?.error;
   return code !== undefined && PERMANENT_FAILURES.has(code);
 }

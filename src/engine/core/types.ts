@@ -158,6 +158,18 @@ export type AdapterStatus =
   | { readonly state: "connected"; readonly identity: string }
   | { readonly state: "error"; readonly error: string };
 
+/** A refusal from a chat platform; `permanent` ones (no access, message gone) are not retried. */
+export class PlatformError extends Error {
+  readonly status: number;
+  readonly permanent: boolean;
+
+  constructor(message: string, status: number, permanent: boolean) {
+    super(message);
+    this.status = status;
+    this.permanent = permanent;
+  }
+}
+
 export interface ChatAdapter {
   start(handlers: AdapterHandlers): Promise<void>;
   stop(): Promise<void>;
