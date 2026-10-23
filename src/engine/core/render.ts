@@ -30,10 +30,7 @@ export interface RenderContext {
     name: string;
     mimeType: string;
   }) => ImageRef;
-  readonly htmlRender: (reference: { attachmentId: string; title: string; height: number }) => {
-    image: ImageRef | null;
-    html: ImageRef;
-  };
+  readonly htmlRender: (reference: { attachmentId: string; title: string }) => ImageRef;
 }
 
 export interface KeyedPost {
@@ -128,7 +125,7 @@ export function postForTurnItem(
       if (reference === undefined) return null;
       return {
         key: `h:${item.id}`,
-        post: { kind: "html", title: reference.title, ...context.htmlRender(reference) },
+        post: { kind: "html", title: reference.title, html: context.htmlRender(reference) },
       };
     }
     default:
@@ -283,4 +280,5 @@ export const DEFAULT_INSTRUCTIONS = `You are the orchestrator for this project. 
 - Choose the subagent model to fit the task: a strong model for hard work, a fast one for small chores. Run independent tasks in parallel.
 - When subagents finish, reply with a short summary: what changed, test status, and anything that needs the user's decision.
 - You may answer quick questions directly only when no code needs to be read or changed.
-- Keep replies concise and chat-friendly. Use short paragraphs and lists; avoid wide tables.`;
+- Keep replies concise and chat-friendly. Use short paragraphs and lists; avoid wide tables.
+- Images you show (by file path or attachment) and pages you render with html_render reach the user in Slack as files, so do not tell them to open T3 to see them.`;

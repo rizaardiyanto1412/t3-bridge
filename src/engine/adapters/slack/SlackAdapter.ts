@@ -1011,17 +1011,11 @@ export class SlackAdapter implements ChatAdapter {
     conversation: ConversationRef,
     post: Extract<OutboundPost, { kind: "html" }>,
   ) {
-    const files: Array<{ file: Buffer; filename: string }> = [];
-    for (const ref of [post.image, post.html]) {
-      if (ref === null) continue;
-      try {
-        const loaded = await ref.load();
-        files.push({ file: loaded.bytes, filename: ref.name });
-      } catch (error) {
-        this.log.warn(`[${this.name}] preparing ${ref.name} failed`, error);
-      }
-    }
-    if (files.length === 0) {
+    let file: Buffer;
+    try {
+      file = (await post.html.load()).bytes;
+    } catch (error) {
+      this.log.warn(`[${this.name}] preparing ${post.html.name} failed`, error);
       const posted = await this.web.chat.postMessage({
         ...threadTarget(conversation),
         text: `🖼 ${post.title} (open it in T3)`,
@@ -1032,7 +1026,7 @@ export class SlackAdapter implements ChatAdapter {
       channel_id: conversation.id,
       ...(conversation.threadTs === undefined ? {} : { thread_ts: conversation.threadTs }),
       initial_comment: `🖼 *${post.title}*`,
-      file_uploads: files,
+      file_uploads: [{ file, filename: post.html.name }],
     } as never);
     return { channel: conversation.id, uploaded: "1" };
   }

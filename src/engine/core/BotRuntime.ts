@@ -103,9 +103,6 @@ export interface BotRuntimeOptions {
   readonly platformLabel: string;
   /** Claims an unowned bot for the first person who messages it directly. */
   readonly claimOwner: (userId: string) => Promise<void>;
-  readonly renderHtmlToPng:
-    | ((html: string, width: number, height: number) => Promise<Buffer>)
-    | null;
   /** Messages the bridge wrote outside a bot, such as a new thread's instructions. */
   readonly isBridgeMessage: (messageId: string) => boolean;
   /**
@@ -332,8 +329,8 @@ export class BotRuntime {
     };
   }
 
-  private htmlRenderRefs(reference: { attachmentId: string; title: string; height: number }) {
-    const html: ImageRef = {
+  private htmlRenderRefs(reference: { attachmentId: string; title: string }): ImageRef {
+    return {
       name: `${safeFileName(reference.title)}.html`,
       load: async () => {
         const source = await this.options.t3.downloadAsset({
@@ -347,19 +344,6 @@ export class BotRuntime {
         };
       },
     };
-    const render = this.options.renderHtmlToPng;
-    const image: ImageRef | null =
-      render === null
-        ? null
-        : {
-            name: `${safeFileName(reference.title)}.png`,
-            load: async () => {
-              const source = await html.load();
-              const bytes = await render(source.bytes.toString("utf8"), 728, reference.height);
-              return { bytes, mimeType: "image/png" };
-            },
-          };
-    return { image, html };
   }
 
   private renderMainItem(item: OrchestrationV2TurnItem, fromSnapshot: boolean) {

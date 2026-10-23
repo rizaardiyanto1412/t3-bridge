@@ -1,39 +1,50 @@
 {
   "name": "t3-bridge",
   "version": "0.1.0",
-  "private": true,
   "description": "Chat with a T3 Code thread from Slack. The thread acts as an orchestrator that hands work to subagents.",
   "license": "MIT",
+  "author": "Riza Maulana Ardiyanto",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rizaardiyanto1412/t3-bridge.git"
+  },
+  "homepage": "https://github.com/rizaardiyanto1412/t3-bridge#readme",
+  "keywords": [
+    "t3code",
+    "slack",
+    "agents",
+    "bridge"
+  ],
   "type": "module",
-  "main": "dist-electron/main.cjs",
-  "productName": "T3 Bridge",
+  "bin": {
+    "t3-bridge": "dist/cli.cjs"
+  },
+  "files": [
+    "dist/cli.cjs",
+    "dist/panel"
+  ],
   "packageManager": "pnpm@11.10.0",
   "engines": {
     "node": ">=22.18"
   },
   "scripts": {
     "build": "tsdown && vite build --config vite.renderer.config.ts",
-    "start": "node scripts/start.mjs",
-    "dist": "node scripts/dist.mjs",
-    "install-worker": "node scripts/install-worker.mjs",
+    "start": "pnpm build && node dist/cli.cjs",
     "sync-t3code": "node scripts/sync-t3code.mjs",
     "typecheck": "tsc --noEmit -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
   },
-  "dependencies": {
+  "devDependencies": {
     "@slack/socket-mode": "3.1.0",
     "@slack/web-api": "8.2.0",
     "@t3tools/contracts": "workspace:*",
     "@t3tools/shared": "workspace:*",
-    "effect": "4.0.5"
-  },
-  "devDependencies": {
     "@types/node": "^24.12.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
-    "electron": "44.4.5",
-    "electron-builder": "26.16.1",
+    "effect": "4.0.5",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tsdown": "^0.23.1",

@@ -9,6 +9,7 @@ import { testSlackTokens } from "../adapters/slack/SlackAdapter.ts";
 import { DEFAULT_INSTRUCTIONS } from "../core/render.ts";
 import { NotFoundError, type BotInput, type Engine } from "../Engine.ts";
 import type { Updater } from "../updater.ts";
+import { BRIDGE_VERSION } from "../version.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -18,7 +19,6 @@ const MIME: Record<string, string> = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".json": "application/json",
-  ".dmg": "application/x-apple-diskimage",
 };
 
 class HttpError extends Error {
@@ -46,14 +46,12 @@ export interface ControlServerOptions {
   readonly engine: Engine;
   /** The built control panel, served at / so any browser on the tailnet can use it too. */
   readonly staticDir: string | null;
-  /** Installers offered for download from the worker, e.g. the .dmg. */
-  readonly downloadsDir: string | null;
   readonly updater: Updater | null;
 }
 
 /**
- * The control panel's API. The desktop app and a plain browser both use it, locally or
- * from another Mac over Tailscale; every /api call needs the bridge's control token.
+ * The control panel's API, used by the panel in a browser on this Mac or another device on
+ * the tailnet; every /api call needs the bridge's control token.
  */
 export class ControlServer {
   private readonly servers: Http.Server[] = [];
@@ -94,7 +92,7 @@ export class ControlServer {
     );
   }
 
-  /** Links another Mac pastes into T3 Bridge → Connect to a worker. */
+  /** Links that open the panel from another device on the tailnet. */
   connectLinks(): string[] {
     const { controlPort, controlToken } = this.options.engine.config.get();
     return this.hosts
@@ -116,12 +114,6 @@ export class ControlServer {
         sendJson(response, 200, result ?? { ok: true });
         return;
       }
-      if (url.pathname.startsWith("/downloads/"))
-        return await this.serveFile(
-          response,
-          this.options.downloadsDir,
-          url.pathname.slice("/downloads/".length),
-        );
       return await this.serveFile(
         response,
         this.options.staticDir,
@@ -143,7 +135,7 @@ export class ControlServer {
     if (provided.length !== expected.length || !Crypto.timingSafeEqual(provided, expected)) {
       throw new HttpError(
         401,
-        "This T3 Bridge link is not valid any more. Copy a fresh one from the worker.",
+        "This T3 Bridge link is not valid any more. Get the current one with `npx t3-bridge link`.",
       );
     }
   }
@@ -152,11 +144,7 @@ export class ControlServer {
     const engine = this.options.engine;
     const path = url.pathname;
     if (method === "GET" && path === "/api/status")
-      return {
-        ...engine.status(),
-        connectLinks: this.connectLinks(),
-        downloads: await this.downloads(),
-      };
+      return { ...engine.status(), connectLinks: this.connectLinks() };
     if (path.startsWith("/api/update")) return this.routeUpdate(method, path);
     if (method === "GET" && path === "/api/logs")
       return { entries: engine.log.entries().slice(-200) };
@@ -187,9 +175,9 @@ export class ControlServer {
   private async routeUpdate(method: string, path: string): Promise<unknown> {
     const updater = this.options.updater;
     if (method === "GET" && path === "/api/update") {
-      return { supported: updater !== null, current: await updater?.current() ?? null, status: await updater?.status() ?? null };
+      return { supported: updater !== null, current: BRIDGE_VERSION, status: (await updater?.status()) ?? null };
     }
-    if (updater === null) throw new HttpError(400, "Updating is only available on a worker installed with install-worker.");
+    if (updater === null) throw new HttpError(400, "This T3 Bridge cannot update itself.");
     if (method === "POST" && path === "/api/update/check") return updater.check();
     if (method === "POST" && path === "/api/update/start") {
       await updater.start();
@@ -197,17 +185,6 @@ export class ControlServer {
       return { started: true };
     }
     throw new HttpError(404, `No route ${method} ${path}`);
-  }
-
-  private async downloads(): Promise<string[]> {
-    if (this.options.downloadsDir === null) return [];
-    try {
-      return (await FS.readdir(this.options.downloadsDir)).filter(
-        (name) => name.endsWith(".dmg") || name.endsWith(".zip"),
-      );
-    } catch {
-      return [];
-    }
   }
 
   private async serveFile(response: Http.ServerResponse, root: string | null, relative: string) {

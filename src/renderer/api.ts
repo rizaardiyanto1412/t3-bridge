@@ -4,38 +4,9 @@ export interface Target {
   readonly label: string;
 }
 
-export interface DesktopBridge {
-  local: () => Promise<{ baseUrl: string; token: string } | null>;
-  remote: {
-    get: () => Promise<{ baseUrl: string; label: string } | null>;
-    connect: (target: { baseUrl: string; token: string }) => Promise<void>;
-    select: (selected: boolean) => Promise<void>;
-    forget: () => Promise<void>;
-    rememberToken: (token: string) => Promise<void>;
-  };
-}
-
-declare global {
-  interface Window {
-    bridgeDesktop?: DesktopBridge;
-  }
-}
-
 const TOKEN_KEY = "t3bridge.token";
 
-/** Reads a link copied from a worker: http://100.x.y.z:47821/#token=… */
-export function parseConnectLink(link: string): Target | null {
-  try {
-    const url = new URL(link.trim());
-    const token = new URLSearchParams(url.hash.slice(1)).get("token");
-    if (!token || (url.protocol !== "http:" && url.protocol !== "https:")) return null;
-    return { baseUrl: url.origin, token, label: url.hostname };
-  } catch {
-    return null;
-  }
-}
-
-/** A panel served by a worker gets its token once in the URL, then keeps it for reloads. */
+/** The panel gets its token once in the URL, then keeps it for reloads. */
 export function pageTarget(): Target | null {
   const fromHash = new URLSearchParams(location.hash.slice(1)).get("token");
   if (fromHash) {
@@ -46,12 +17,9 @@ export function pageTarget(): Target | null {
   return token ? { baseUrl: location.origin, token, label: location.hostname } : null;
 }
 
-/** After the worker's link is replaced, keep using the panel with the new token. */
+/** After the link is replaced, keep using the panel with the new token. */
 export function adoptToken(token: string) {
-  if (location.protocol !== "file:") {
-    localStorage.setItem(TOKEN_KEY, token);
-    void window.bridgeDesktop?.remote.rememberToken(token);
-  }
+  localStorage.setItem(TOKEN_KEY, token);
   location.reload();
 }
 
@@ -107,7 +75,7 @@ export function makeApi(target: Target) {
     newThread: (id: string) =>
       call<{ threadId: string; title: string }>("POST", `/api/bots/${id}/new-thread`),
     updateInfo: () =>
-      call<{ supported: boolean; current: string | null; status: UpdateStatus | null }>(
+      call<{ supported: boolean; current: string; status: UpdateStatus | null }>(
         "GET",
         "/api/update",
       ),
@@ -115,7 +83,6 @@ export function makeApi(target: Target) {
     startUpdate: () => call<{ started: boolean }>("POST", "/api/update/start"),
     rotateLink: () =>
       call<{ token: string; connectLinks: string[] }>("POST", "/api/control/rotate"),
-    downloadUrl: (name: string) => `${target.baseUrl}/downloads/${encodeURIComponent(name)}`,
   };
 }
 
@@ -184,14 +151,12 @@ export interface Status {
   };
   readonly bots: ReadonlyArray<BotStatus>;
   readonly connectLinks: ReadonlyArray<string>;
-  readonly downloads: ReadonlyArray<string>;
 }
 
 export interface UpdateCheck {
   readonly available: boolean;
-  readonly current: string | null;
+  readonly current: string;
   readonly latest: string | null;
-  readonly changes: ReadonlyArray<string>;
   readonly reason: string | null;
 }
 

@@ -1,28 +1,19 @@
 import { defineConfig } from "tsdown";
 
-// The main process bundles every dependency, the vendored T3 Code sources included (they ship
-// as TypeScript), and keeps only Electron external, so the packaged app needs no node_modules.
-const external = (id: string) => id === "electron" || id.startsWith("electron/");
-
-const bundle = (entry: string, clean: boolean) => ({
-  format: "cjs" as const,
-  outDir: "dist-electron",
+// One file with every dependency inlined, the vendored T3 Code sources included (they ship as
+// TypeScript), so `npx t3-bridge` installs nothing but this package.
+export default defineConfig({
+  entry: ["src/cli.ts"],
+  format: "cjs",
+  outDir: "dist",
   dts: false,
   sourcemap: true,
+  clean: true,
   outExtensions: () => ({ js: ".cjs" }),
-  outputOptions: { codeSplitting: false },
-  entry: [entry],
-  clean,
-  platform: "node" as const,
+  outputOptions: { banner: "#!/usr/bin/env node" },
+  platform: "node",
   deps: {
-    alwaysBundle: (id: string) => !id.startsWith("node:") && !external(id),
-    neverBundle: external,
-    onlyBundle: false as const,
+    alwaysBundle: (id: string) => !id.startsWith("node:"),
+    onlyBundle: false,
   },
 });
-
-export default defineConfig([
-  bundle("src/main/main.ts", true),
-  bundle("src/main/preload.ts", false),
-  bundle("src/engine/cli.ts", false),
-]);

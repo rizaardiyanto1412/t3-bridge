@@ -1,6 +1,3 @@
 node_modules/
-dist-electron/
-dist-renderer/
-release/
-build/
+dist/
 .DS_Store

@@ -65,21 +65,16 @@ p {
   flex-direction: column;
 }
 .titlebar {
-  -webkit-app-region: drag;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 20px 14px 84px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--card);
   position: sticky;
   top: 0;
   z-index: 1;
-}
-.titlebar button,
-.titlebar input {
-  -webkit-app-region: no-drag;
 }
 .brand {
   display: flex;

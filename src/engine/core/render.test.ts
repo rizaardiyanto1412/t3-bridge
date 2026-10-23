@@ -31,11 +31,8 @@ function context(overrides: Partial<RenderContext> = {}): RenderContext {
       load: async () => ({ bytes: Buffer.alloc(0), mimeType: attachment.mimeType }),
     }),
     htmlRender: () => ({
-      image: null,
-      html: {
-        name: "x.html",
-        load: async () => ({ bytes: Buffer.alloc(0), mimeType: "text/html" }),
-      },
+      name: "x.html",
+      load: async () => ({ bytes: Buffer.alloc(0), mimeType: "text/html" }),
     }),
     ...overrides,
   };

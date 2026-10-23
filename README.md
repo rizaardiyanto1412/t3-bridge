@@ -5,56 +5,45 @@ thread acts as an **orchestrator**: it never does the work itself, it hands each
 subagent and reports back. Replies, subagent progress, approvals, and questions show up in
 Slack; your messages, files, and button clicks go back to T3.
 
-T3 Bridge is a separate Mac app for [T3 Code](https://github.com/pingdotgg/t3code). It talks to
-T3 Code the same way the T3 mobile app does, so updating T3 Code does not touch it. If T3 Code
-ever changes its protocol, the bridge shows "Rebuild T3 Bridge" instead of half-working; see
+T3 Bridge runs next to [T3 Code](https://github.com/pingdotgg/t3code) as its own program. It
+talks to T3 Code the same way the T3 mobile app does, so updating T3 Code does not touch it. If
+T3 Code ever changes its protocol, the bridge shows "Update T3 Bridge" instead of half-working; see
 [Keeping up with T3 Code](#keeping-up-with-t3-code).
 
 This is an independent project, not made or supported by T3 Tools.
 
-Requirements: macOS on Apple Silicon, T3 Code running on the same Mac, [Tailscale](https://tailscale.com)
-to manage it from other devices, and Node.js 22.18+ with pnpm to build it.
+Requirements: macOS with T3 Code running, Node.js 22.18 or newer, and optionally
+[Tailscale](https://tailscale.com) to open the control panel from other devices.
 
-## How it runs
+## Install
 
-- **Worker:** the Mac that runs T3 Code (for example a Mac mini). T3 Bridge runs there in the
-  background, starts at login, and pairs with T3 Code by itself. You never paste a T3 pairing link.
-- **Control panel:** any browser on your Tailscale network, phone included. Open the worker's link
-  (it ends in `#token=…`) and bookmark it. The T3 Bridge app on another Mac is optional: choose
-  **Connect to a worker…** and paste the same link.
-
-## Install the worker
-
-On the Mac that runs T3 Code:
+On the Mac that runs T3 Code (over SSH works too):
 
 ```sh
-git clone https://github.com/rizaardiyanto1412/t3-bridge.git
-cd t3-bridge
-pnpm install
-pnpm dist             # builds release/T3 Bridge.app and a .dmg
-pnpm install-worker   # installs to ~/Applications and starts it under launchd
+npx t3-bridge install
 ```
 
-To update, open the control panel's **Updates** card, choose **Check for updates**, then
-**Update now**. It pulls, rebuilds and restarts the worker; the bots pause for about a minute.
-From a terminal, the same is `git pull && pnpm dist && pnpm install-worker`. Logs are in `~/Library/Logs/T3 Bridge.log`.
+T3 Bridge now runs in the background, starts at login, and pairs with T3 Code by itself. The
+command prints the control panel link, `http://<tailscale-ip>:47821/#token=…`. Open it in any
+browser on your Tailscale network, your phone included, and bookmark it. Everything else,
+adding Slack bots included, happens in that page. The link works like a password.
 
-To get the link for another Mac, open the worker's control panel (menu bar icon → **Copy link
-for another Mac**) or read it from `~/Library/Application Support/T3 Bridge/config.json`:
-`http://<tailscale-ip>:47821/#token=<controlToken>`. The link works like a password.
+With T3 Code on more than one Mac, run the same command on each Mac whose threads you want in
+Slack, and bookmark each link. On a single Mac without Tailscale, open the `127.0.0.1` link.
 
-## Replacing the link
+| Command | |
+|---|---|
+| `npx t3-bridge` | Run in the terminal instead of in the background |
+| `npx t3-bridge install` | Run in the background, starting at login |
+| `npx t3-bridge uninstall` | Stop and remove the background service; bots and settings are kept |
+| `npx t3-bridge link` | Print the control panel link again |
+| `npx t3-bridge status` | Show whether T3 Code and the bots are connected |
 
-The link works like a password. **Replace link** in **Control from another Mac** issues a new one;
-every old copy stops working, so paste the new link into T3 Bridge on your other Macs.
+To update, open the control panel's **Updates** card and choose **Update now**, or run
+`npx t3-bridge@latest install`. Settings live in `~/Library/Application Support/T3 Bridge` and
+logs in `~/Library/Logs/T3 Bridge.log`.
 
-## Install the control panel on your MacBook
-
-Open the worker link in a browser and download the `.dmg` from **Control from another Mac**.
-The app has no Developer ID signature, so the first time you open it, right-click it and choose
-**Open**. Then choose **Connect to a worker…** and paste the link. The window then shows the
-worker's own control panel, so updating the worker updates what you see; the MacBook app itself
-rarely needs reinstalling.
+**Replace link** in **Open from other devices** issues a new link; every old copy stops working.
 
 ## Add a Slack bot
 
@@ -104,7 +93,7 @@ continue that request; start a new message for a new one.
   files.
 - Images go both ways: pictures you attach in Slack reach the agent, and screenshots or images
   the agent shows (including ones it saved on the Mac) are uploaded to the thread.
-- HTML renders arrive as a screenshot plus the `.html` file.
+- HTML pages the agent renders arrive as an `.html` file.
 - Messages typed in T3 itself also show up in Slack, marked _Sent from T3_.
 - Every message reaches T3 tagged with its thread, e.g. `[Slack · Riza · thread "Check Pro PRs"]`,
   so a reply like "yes, merge it" arrives with its subject. Slack's thread list uses the same titles.
@@ -123,21 +112,31 @@ When T3 Code changes its protocol, refresh them from a T3 Code checkout and rebu
 ```sh
 pnpm sync-t3code ~/Code/t3code
 pnpm typecheck && pnpm test
-pnpm dist && pnpm install-worker
 ```
+
+Then publish a new version (see Develop).
 
 ## Develop
 
 ```sh
 pnpm test        # unit tests
 pnpm typecheck
-pnpm build       # bundles the main process (tsdown) and the control panel (vite)
-pnpm start       # runs the Electron app from source
+pnpm build       # bundles the CLI (tsdown) and the control panel (vite) into dist/
+pnpm start       # builds, then runs in the terminal
+node dist/cli.cjs install   # runs this build as the background service
 ```
 
-`src/engine/cli.ts` runs the engine without Electron against any T3 server; see the comment at its
-top. Chat platforms plug in through `ChatAdapter` in `src/engine/core/types.ts`; Slack is the
-first adapter.
+To run against an isolated T3 server instead of your own:
+
+```sh
+T3_BRIDGE_DATA=/tmp/bridge T3_BRIDGE_PORT=47899 T3_BRIDGE_T3_URL=http://127.0.0.1:4791 \
+T3_BRIDGE_PAIR_COMMAND='node apps/server/src/bin.ts auth pairing create --base-dir /tmp/t3' \
+node dist/cli.cjs
+```
+
+To release, bump `version` in `package.json` and run `pnpm publish`. Installed copies offer the
+update in their control panel. Chat platforms plug in through `ChatAdapter` in
+`src/engine/core/types.ts`; Slack is the first adapter.
 
 ## License
 

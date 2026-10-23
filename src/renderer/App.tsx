@@ -4,9 +4,7 @@ import {
   makeApi,
   adoptToken,
   pageTarget,
-  parseConnectLink,
   type Api,
-  type DesktopBridge,
   type Bot,
   type BotStatus,
   type LogEntry,
@@ -20,26 +18,7 @@ import {
 } from "./api.ts";
 
 export function App() {
-  const desktop = window.bridgeDesktop;
-  // In the desktop app the window shows either this Mac's panel (file://) or a worker's own
-  // panel loaded from the worker; a browser always shows the panel of the worker it opened.
-  const onLocalPage = location.protocol === "file:";
-  const [local, setLocal] = useState<Target | null>(null);
-  const [remote, setRemote] = useState<{ baseUrl: string; label: string } | null>(null);
-  const [page] = useState<Target | null>(() => (onLocalPage ? null : pageTarget()));
-  const workerError = new URLSearchParams(location.search).get("workerError");
-
-  useEffect(() => {
-    if (desktop === undefined) return;
-    void desktop.remote.get().then(setRemote);
-    if (onLocalPage) {
-      void desktop.local().then((value) => {
-        if (value) setLocal({ ...value, label: "This Mac" });
-      });
-    }
-  }, [desktop, onLocalPage]);
-
-  const target = onLocalPage ? local : page;
+  const [target] = useState<Target | null>(pageTarget);
   const api = useMemo(() => (target ? makeApi(target) : null), [target]);
 
   return (
@@ -49,29 +28,9 @@ export function App() {
           <BridgeMark />
           <span>T3 Bridge</span>
         </div>
-        {desktop !== undefined && (
-          <TargetSwitch onLocalPage={onLocalPage} remote={remote} desktop={desktop} />
-        )}
       </header>
       <main className="content">
-        {workerError && (
-          <div className="banner warn">
-            Could not reach the worker ({workerError}). Showing this Mac instead; choose the worker
-            above to try again.
-          </div>
-        )}
-        {api && target ? (
-          <Dashboard
-            key={`${target.baseUrl}`}
-            api={api}
-            target={target}
-            isDesktop={desktop !== undefined}
-          />
-        ) : desktop !== undefined && onLocalPage ? (
-          <p className="muted">Starting the bridge…</p>
-        ) : (
-          <ConnectPrompt />
-        )}
+        {api && target ? <Dashboard api={api} target={target} /> : <ConnectPrompt />}
       </main>
     </div>
   );
@@ -80,89 +39,16 @@ export function App() {
 function ConnectPrompt() {
   return (
     <section className="card">
-      <h2>Open this page with a link</h2>
+      <h2>Open this page with its link</h2>
       <p className="muted">
-        Use the link from the worker's menu bar icon (<em>Copy link for another Mac</em>). It looks
-        like
-        <code> http://100.x.y.z:47821/#token=…</code>
+        On the Mac running T3 Bridge, run <code>npx t3-bridge link</code> and open the link it
+        prints. It looks like <code>http://100.x.y.z:47821/#token=…</code>
       </p>
     </section>
   );
 }
 
-function TargetSwitch(props: {
-  onLocalPage: boolean;
-  remote: { baseUrl: string; label: string } | null;
-  desktop: DesktopBridge;
-}) {
-  const [adding, setAdding] = useState(false);
-  const [link, setLink] = useState("");
-  const parsed = parseConnectLink(link);
-  const { desktop, remote } = props;
-  if (adding || (remote === null && props.onLocalPage)) {
-    return (
-      <div className="target-switch">
-        {adding ? (
-          <>
-            <input
-              className="input small"
-              placeholder="Paste a worker link: http://100.x.y.z:47821/#token=…"
-              value={link}
-              onChange={(event) => setLink(event.target.value)}
-              autoFocus
-            />
-            <button
-              className="button primary small"
-              disabled={parsed === null}
-              onClick={() => {
-                if (parsed)
-                  void desktop.remote.connect({ baseUrl: parsed.baseUrl, token: parsed.token });
-                setAdding(false);
-                setLink("");
-              }}
-            >
-              Connect
-            </button>
-            <button className="button ghost small" onClick={() => setAdding(false)}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <button className="button ghost small" onClick={() => setAdding(true)}>
-            Connect to a worker…
-          </button>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div className="target-switch">
-      <div className="segmented">
-        <button
-          className={props.onLocalPage ? "active" : ""}
-          onClick={() => void desktop.remote.select(false)}
-        >
-          This Mac
-        </button>
-        <button
-          className={props.onLocalPage ? "" : "active"}
-          onClick={() => void desktop.remote.select(true)}
-        >
-          Worker · {remote?.label ?? location.hostname}
-        </button>
-      </div>
-      <button
-        className="button ghost small"
-        onClick={() => void desktop.remote.forget()}
-        title="Forget this worker"
-      >
-        Forget
-      </button>
-    </div>
-  );
-}
-
-function Dashboard({ api, target, isDesktop }: { api: Api; target: Target; isDesktop: boolean }) {
+function Dashboard({ api, target }: { api: Api; target: Target }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<BotStatus | "new" | null>(null);
@@ -200,7 +86,8 @@ function Dashboard({ api, target, isDesktop }: { api: Api; target: Target; isDes
         <h2>Can't reach {target.label}</h2>
         <p>{error}</p>
         <p className="muted">
-          Check that the worker is on and that this Mac is on the same Tailscale network.
+          Check that the Mac running T3 Bridge is on and that this device is on the same Tailscale
+          network.
         </p>
       </section>
     );
@@ -305,7 +192,7 @@ function Dashboard({ api, target, isDesktop }: { api: Api; target: Target; isDes
         ))}
       </section>
 
-      <OtherMacs status={status} api={api} isDesktop={isDesktop} />
+      <OtherDevices status={status} api={api} />
       <Updates api={api} />
       <Logs api={api} />
     </div>
@@ -414,17 +301,17 @@ function BotCard(props: {
   );
 }
 
-function OtherMacs({ status, api, isDesktop }: { status: Status; api: Api; isDesktop: boolean }) {
+function OtherDevices({ status, api }: { status: Status; api: Api }) {
   const [copied, setCopied] = useState(false);
   const link = status.connectLinks[0];
   return (
     <section className="card">
-      <h2>Control from another Mac</h2>
+      <h2>Open from other devices</h2>
       {link ? (
         <>
           <p className="muted">
-            On your MacBook, open T3 Bridge → <em>Connect to a worker…</em> and paste this link. It
-            works over Tailscale; treat it like a password.
+            Open this link on any device on your Tailscale network, and bookmark it. Treat it like
+            a password.
           </p>
           <div className="row gap">
             <code className="link">{link.replace(/token=.*/, "token=••••••")}</code>
@@ -443,7 +330,7 @@ function OtherMacs({ status, api, isDesktop }: { status: Status; api: Api; isDes
               onClick={async () => {
                 if (
                   !confirm(
-                    "Replace the link? Every copy of the old link stops working, including on other Macs; paste the new one there.",
+                    "Replace the link? Every copy of the old link stops working, including bookmarks on other devices.",
                   )
                 )
                   return;
@@ -457,28 +344,17 @@ function OtherMacs({ status, api, isDesktop }: { status: Status; api: Api; isDes
         </>
       ) : (
         <p className="muted">
-          {isDesktop
-            ? "This Mac has no Tailscale address, so other Macs can't reach it."
-            : "You are already using it from another device."}
-        </p>
-      )}
-      {status.downloads.length > 0 && (
-        <p className="small">
-          Install T3 Bridge on another Mac:{" "}
-          {status.downloads.map((name) => (
-            <a key={name} href={api.downloadUrl(name)} className="download">
-              {name}
-            </a>
-          ))}
+          This Mac has no Tailscale address, so only this Mac can open the panel. Install
+          Tailscale, then run <code>npx t3-bridge link</code>.
         </p>
       )}
     </section>
   );
 }
 
-/** Pull, rebuild and reinstall the worker from GitHub, without a terminal. */
+/** Installs the newest version from npm and restarts the background service, without a terminal. */
 function Updates({ api }: { api: Api }) {
-  const [info, setInfo] = useState<{ supported: boolean; current: string | null } | null>(null);
+  const [info, setInfo] = useState<{ supported: boolean; current: string } | null>(null);
   const [check, setCheck] = useState<UpdateCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [progress, setProgress] = useState<UpdateStatus | null>(null);
@@ -496,7 +372,7 @@ function Updates({ api }: { api: Api }) {
     });
   }, [api]);
 
-  // While updating, the worker restarts and briefly stops answering; keep asking until the
+  // While updating, T3 Bridge restarts and briefly stops answering; keep asking until the
   // new one reports the update finished, then reload to get its control panel.
   useEffect(() => {
     if (startedAt === null) return;
@@ -510,7 +386,7 @@ function Updates({ api }: { api: Api }) {
           if (status.state === "done") location.reload();
           if (status.state === "failed") setStartedAt(null);
         })
-        .catch(() => setProgress((current) => current && { ...current, step: "Restarting the worker" }));
+        .catch(() => setProgress((current) => current && { ...current, step: "Restarting T3 Bridge" }));
     }, 2000);
     return () => clearInterval(timer);
   }, [api, startedAt]);
@@ -558,35 +434,31 @@ function Updates({ api }: { api: Api }) {
       </div>
       {updating && progress && (
         <p>
-          ⏳ {progress.step}… <span className="muted small">The bots pause for about a minute while the worker restarts.</span>
+          ⏳ {progress.step}… <span className="muted small">The bots pause for a moment while T3 Bridge restarts.</span>
         </p>
       )}
       {!updating && progress?.state === "failed" && (
         <p className="error-text">
-          The update failed: {progress.error}. Details are in update.log in the worker's T3 Bridge data folder.
+          The update failed: {progress.error}. Details are in update.log in ~/Library/Application Support/T3 Bridge.
         </p>
       )}
       {!updating && check && (
         <>
           {check.reason && <p className="error-text small">{check.reason}</p>}
-          {check.changes.length === 0 ? (
+          {!check.available ? (
             <p className="ok-text">You're on the latest version.</p>
           ) : (
-            <>
+            <div className="row gap">
               <p>
-                {check.changes.length} new change{check.changes.length === 1 ? "" : "s"} ({check.latest}):
+                Version {check.latest} is available.{" "}
+                <a href="https://github.com/rizaardiyanto1412/t3-bridge/releases" target="_blank" rel="noreferrer">
+                  What's new
+                </a>
               </p>
-              <ul className="changes">
-                {check.changes.slice(0, 15).map((change) => (
-                  <li key={change}>{change}</li>
-                ))}
-              </ul>
-              <div className="row gap">
-                <button className="button primary" disabled={!check.available} onClick={() => void update()}>
-                  Update now
-                </button>
-              </div>
-            </>
+              <button className="button primary" onClick={() => void update()}>
+                Update now
+              </button>
+            </div>
           )}
         </>
       )}
@@ -865,7 +737,7 @@ function BotEditor(props: {
 }
 
 /**
- * The worker serves this page over plain http on the tailnet, where browsers withhold the
+ * T3 Bridge serves this page over plain http on the tailnet, where browsers withhold the
  * clipboard API; the old execCommand copy still works there.
  */
 function copyText(text: string) {

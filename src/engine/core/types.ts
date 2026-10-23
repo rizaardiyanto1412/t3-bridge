@@ -142,7 +142,6 @@ export type OutboundPost =
   | {
       readonly kind: "html";
       readonly title: string;
-      readonly image: ImageRef | null;
       readonly html: ImageRef;
     }
   | { readonly kind: "error"; readonly message: string }

@@ -26,15 +26,13 @@ import {
 } from "./store.ts";
 import { makeLocalCredentials, type LocalEnvironmentOptions } from "./t3/localEnvironment.ts";
 import { T3Client, type T3ConnectionStatus } from "./t3/T3Client.ts";
-
-export const BRIDGE_VERSION = "0.1.0";
+import { BRIDGE_VERSION } from "./version.ts";
 
 export interface EngineOptions {
   readonly dataDir: string;
   readonly secrets: SecretStore;
   readonly t3Defaults?: LocalEnvironmentOptions;
   readonly controlPort?: number;
-  readonly renderHtmlToPng?: (html: string, width: number, height: number) => Promise<Buffer>;
   readonly logSink?: (line: string) => void;
   /** Replaces the chat platform, for tests. */
   readonly makeAdapter?: (bot: BotConfig) => ChatAdapter;
@@ -400,7 +398,6 @@ export class Engine {
         // The runtime reads allowed users from its own copy; keep it in step without a restart.
         (runtime.bot as { allowedUserIds: ReadonlyArray<string> }).allowedUserIds = [userId];
       },
-      renderHtmlToPng: this.options.renderHtmlToPng ?? null,
       isBridgeMessage: (messageId) => this.bridgeMessages.has(messageId),
       threaded: isAgentLayout(bot),
       createFreshThread: () => this.createFreshThread(bot.id),

@@ -2,6 +2,5 @@ packages:
   - vendor/t3code/*
 
 allowBuilds:
-  electron: true
-  electron-winstaller: false
+  electron: set this to true or false
   esbuild: true

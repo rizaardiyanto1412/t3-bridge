@@ -296,7 +296,7 @@ export class T3Client {
       if (descriptor.protocol !== ORCHESTRATION_PROTOCOL_VERSION) {
         return yield* Effect.fail(
           new Error(
-            `T3 speaks protocol ${descriptor.protocol}, this bridge speaks ${ORCHESTRATION_PROTOCOL_VERSION}. Rebuild T3 Bridge.`,
+            `T3 speaks protocol ${descriptor.protocol}, this bridge speaks ${ORCHESTRATION_PROTOCOL_VERSION}. Update T3 Bridge.`,
           ),
         );
       }
