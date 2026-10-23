@@ -23,6 +23,8 @@ export interface RenderContext {
   readonly requests: ReadonlyMap<string, OrchestrationV2RuntimeRequest>;
   /** Messages the bridge itself sent; they are not echoed back to chat. */
   readonly sentByBridge: (messageId: string) => boolean;
+  /** An image file on this Mac that the agent referenced by path. */
+  readonly localImage: (path: string) => ImageRef;
   readonly attachmentImage: (attachment: {
     id: string;
     name: string;
@@ -74,13 +76,17 @@ export function postForTurnItem(
   if ("nodeId" in item && isInsideSubagent(item.nodeId, context.nodes)) return null;
   switch (item.type) {
     case "assistant_message": {
-      const images = (item.attachments ?? [])
-        .filter((attachment) => attachment.type === "image")
-        .map((attachment) => context.attachmentImage(attachment));
-      if (item.text.trim().length === 0 && images.length === 0) return null;
+      const local = extractLocalImages(item.text);
+      const images = [
+        ...(item.attachments ?? [])
+          .filter((attachment) => attachment.type === "image")
+          .map((attachment) => context.attachmentImage(attachment)),
+        ...local.paths.map((path) => context.localImage(path)),
+      ];
+      if (local.markdown.trim().length === 0 && images.length === 0) return null;
       return {
         key: `a:${item.id}`,
-        post: { kind: "assistant", markdown: item.text, streaming: item.streaming, images },
+        post: { kind: "assistant", markdown: local.markdown, streaming: item.streaming, images },
       };
     }
     case "user_message": {
@@ -237,6 +243,28 @@ export function runStatus(status: OrchestrationV2RunStatus): RunStatus | null {
 function firstLine(text: string) {
   const line = text.trim().split("\n")[0] ?? "";
   return line.length > 80 ? `${line.slice(0, 79)}…` : line || "Subagent";
+}
+
+const LOCAL_IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp)$/i;
+
+/**
+ * Agents show screenshots as markdown images pointing at a file on the host, e.g.
+ * `![shot](/Users/me/.t3/userdata/browser-artifacts/shot.png)`. T3 serves those itself; chat
+ * apps would only see the path. Such images are taken out of the text to be uploaded as
+ * files. A half-streamed image at the end of the text is held back until it is complete.
+ */
+export function extractLocalImages(markdown: string): { markdown: string; paths: string[] } {
+  const paths: string[] = [];
+  const text = markdown
+    .replace(/!\[[^\]]*\]\(\s*<?((?:file:\/\/)?\/[^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g, (match, target: string) => {
+      const path = decodeURIComponent(target.replace(/^file:\/\//, "").split(/[?#]/)[0]!);
+      if (!LOCAL_IMAGE_EXTENSIONS.test(path)) return match;
+      if (!paths.includes(path)) paths.push(path);
+      return "";
+    })
+    .replace(/!\[[^\]]*(?:\]\([^)]*)?$/, "")
+    .replace(/\n{3,}/g, "\n\n");
+  return { markdown: text, paths };
 }
 
 /** Stable fingerprint of what a post shows, so unchanged posts are not edited again. */

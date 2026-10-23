@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { requestTitle, standaloneHtml } from "./BotRuntime.ts";
 
-import { postForTurnItem, runStatus, type RenderContext } from "./render.ts";
+import { extractLocalImages, postForTurnItem, runStatus, type RenderContext } from "./render.ts";
 
 const node = (
   id: string,
@@ -25,6 +25,7 @@ function context(overrides: Partial<RenderContext> = {}): RenderContext {
     ]),
     requests: new Map(),
     sentByBridge: () => false,
+    localImage: (path) => ({ name: path, load: async () => ({ bytes: Buffer.alloc(0), mimeType: "image/png" }) }),
     attachmentImage: (attachment) => ({
       name: attachment.name,
       load: async () => ({ bytes: Buffer.alloc(0), mimeType: attachment.mimeType }),
@@ -159,5 +160,28 @@ describe("requestTitle", () => {
     );
     expect(requestTitle("x".repeat(80))).toHaveLength(60);
     expect(requestTitle("   ")).toBe("Files");
+  });
+});
+
+describe("extractLocalImages", () => {
+  it("takes screenshots saved on the host out of the text, to upload them", () => {
+    const result = extractLocalImages(
+      "Here it is.\n\n![shot](/Users/me/.t3/userdata/browser-artifacts/a%20b.png)\n\nDone. ![web](https://x.dev/a.png)",
+    );
+    expect(result.paths).toEqual(["/Users/me/.t3/userdata/browser-artifacts/a b.png"]);
+    expect(result.markdown).toBe("Here it is.\n\nDone. ![web](https://x.dev/a.png)");
+  });
+
+  it("leaves non-image paths alone and holds back a half-streamed image", () => {
+    expect(extractLocalImages("![log](/tmp/run.log)").paths).toEqual([]);
+    expect(extractLocalImages("Look: ![shot](/Users/me/sh").markdown).toBe("Look: ");
+  });
+
+  it("puts the images on the reply", () => {
+    const keyed = postForTurnItem(
+      item({ type: "assistant_message", text: "![s](file:///tmp/s.png)", streaming: false }),
+      context(),
+    );
+    expect(keyed?.post).toMatchObject({ kind: "assistant", markdown: "", images: [{ name: "/tmp/s.png" }] });
   });
 });

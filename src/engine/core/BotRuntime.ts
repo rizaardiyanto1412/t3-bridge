@@ -1,4 +1,5 @@
 import * as Crypto from "node:crypto";
+import * as FS from "node:fs/promises";
 import * as Path from "node:path";
 
 import { injectHtmlRenderBootstrap } from "@t3tools/shared/htmlRender";
@@ -312,6 +313,10 @@ export class BotRuntime {
       requests: model.requests,
       sentByBridge: (messageId) =>
         this.state.sentMessages[messageId] !== undefined || this.options.isBridgeMessage(messageId),
+      localImage: (path) => ({
+        name: Path.basename(path),
+        load: () => readLocalImage(path),
+      }),
       attachmentImage: (attachment) => ({
         name: attachment.name,
         load: () =>
@@ -907,6 +912,23 @@ export function toMillis(value: unknown): number {
   return typeof value === "string" || typeof value === "number"
     ? new Date(value).getTime()
     : Number.NaN;
+}
+
+const IMAGE_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+/** The bridge runs on the same Mac as T3, so an image the agent saved there is read directly. */
+async function readLocalImage(path: string): Promise<{ bytes: Buffer; mimeType: string }> {
+  const mimeType = IMAGE_MIME[Path.extname(path).toLowerCase()];
+  if (mimeType === undefined) throw new Error(`${path} is not an image`);
+  const stat = await FS.stat(path);
+  if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES) throw new Error(`${path} is missing or too large`);
+  return { bytes: await FS.readFile(path), mimeType };
 }
 
 /** The opening request, trimmed to a short thread title. */
