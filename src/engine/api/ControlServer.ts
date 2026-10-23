@@ -162,6 +162,9 @@ export class ControlServer {
       const token = await engine.rotateControlToken();
       return { token, connectLinks: this.connectLinks() };
     }
+    const activityMatch = /^\/api\/bots\/([\w-]+)\/activity$/.exec(path);
+    if (method === "GET" && activityMatch !== null)
+      return { entries: engine.activity(activityMatch[1]!) };
     const freshMatch = /^\/api\/bots\/([\w-]+)\/new-thread$/.exec(path);
     if (method === "POST" && freshMatch !== null) return engine.startFreshThread(freshMatch[1]!);
     const botMatch = /^\/api\/bots\/([\w-]+)$/.exec(path);

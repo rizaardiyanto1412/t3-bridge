@@ -38,6 +38,13 @@ import {
   type KeyedPost,
   type RenderContext,
 } from "./render.ts";
+import {
+  applyPost,
+  applyRunStatus,
+  MAX_ACTIVITY,
+  newActivity,
+  type ActivityEntry,
+} from "./activity.ts";
 import type {
   AdapterStatus,
   ChatAdapter,
@@ -84,6 +91,8 @@ interface BotState {
   lastThread?: ConversationRef | null;
   /** Each chat thread's title (its opening request), keyed by `${channel}:${threadTs}`. */
   threadTitles?: Record<string, string>;
+  /** The latest chat requests and what came of them, newest last. */
+  activity?: ActivityEntry[];
 }
 
 const MAX_RECORDS = 1500;
@@ -458,9 +467,10 @@ export class BotRuntime {
 
   private applyRun(run: OrchestrationV2Run) {
     this.runs.set(run.id, run);
+    const status = runStatus(run.status);
+    if (status !== null) this.updateActivity(run.id, (entry) => applyRunStatus(entry, status));
     const sent = this.state.sentMessages[run.userMessageId];
     if (sent === undefined) return;
-    const status = runStatus(run.status);
     if (status === null || status === sent.status) return;
     this.state.sentMessages[run.userMessageId] = { ...sent, status };
     this.options.adapter
@@ -477,7 +487,40 @@ export class BotRuntime {
 
   private enqueue(keyed: KeyedPost, runId: string | null) {
     this.desired.set(keyed.key, { post: keyed.post, runId });
+    this.updateActivity(runId, (entry) => applyPost(entry, keyed.post));
     this.scheduleDelivery(0);
+  }
+
+  // ── activity, for the control panel ─────────────────────────────────────
+
+  get activity(): ReadonlyArray<ActivityEntry> {
+    return this.state?.activity ?? [];
+  }
+
+  private recordActivity(entry: ActivityEntry) {
+    const activity = [...this.activity, entry];
+    this.state.activity = activity.slice(-MAX_ACTIVITY);
+    this.scheduleSave();
+  }
+
+  /** Updates the request a run belongs to, following summaries back to the run that delegated. */
+  private updateActivity(runId: string | null, change: (entry: ActivityEntry) => ActivityEntry) {
+    let current = runId;
+    for (let depth = 0; current !== null && depth < 16; depth += 1) {
+      const run = this.runs.get(current);
+      if (run === undefined) return;
+      const index = this.activity.findIndex((entry) => entry.id === run.userMessageId);
+      if (index !== -1) {
+        const before = this.activity[index]!;
+        const after = change(before);
+        if (after !== before) {
+          this.state.activity = this.activity.with(index, after);
+          this.scheduleSave();
+        }
+        return;
+      }
+      current = this.wakeParents.get(run.userMessageId) ?? null;
+    }
   }
 
   /**
@@ -660,6 +703,7 @@ export class BotRuntime {
     const answered = await this.answerFromReply(message, text);
     if (answered) return;
 
+    let recorded: string | null = null;
     try {
       const attachments = await this.uploadFiles(message);
       const messageId = MessageId.make(Crypto.randomUUID());
@@ -679,6 +723,11 @@ export class BotRuntime {
           : [`${message.replyTo === null ? "new thread" : "thread"} "${title}"`]),
         ...(this.bot.reminder ? ["delegate via subagents"] : []),
       ].join(" · ")}]\n`;
+      // Recorded before dispatching: the run's first events can arrive before dispatch returns.
+      recorded = messageId;
+      this.recordActivity(
+        newActivity({ id: messageId, user: message.userName, text, files: message.files.length }),
+      );
       await this.options.t3.dispatch({
         type: "message.dispatch",
         commandId: CommandId.make(Crypto.randomUUID()),
@@ -701,6 +750,15 @@ export class BotRuntime {
       };
     } catch (error) {
       log.error(`[${this.bot.name}] sending a message to T3 failed`, error);
+      const failed = newActivity({
+        id: recorded ?? Crypto.randomUUID(),
+        user: message.userName,
+        text,
+        files: message.files.length,
+        error: `Could not reach T3: ${errorText(error)}`,
+      });
+      if (recorded === null) this.recordActivity(failed);
+      else this.state.activity = this.activity.map((entry) => (entry.id === recorded ? failed : entry));
       await adapter.reply(message, `⚠️ Could not reach T3: ${errorText(error)}`);
     }
   }

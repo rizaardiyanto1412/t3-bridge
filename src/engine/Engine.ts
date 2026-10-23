@@ -12,6 +12,7 @@ import {
 
 import { AGENT_LAYOUT_MANIFEST_VERSION, MANIFEST_VERSION } from "./adapters/slack/manifest.ts";
 import { SlackAdapter, testSlackTokens } from "./adapters/slack/SlackAdapter.ts";
+import { isWorking, type ActivityEntry } from "./core/activity.ts";
 import { BotRuntime } from "./core/BotRuntime.ts";
 import { DEFAULT_INSTRUCTIONS } from "./core/render.ts";
 import type { ChatAdapter } from "./core/types.ts";
@@ -122,9 +123,16 @@ export class Engine {
           },
           lastError: runtime?.lastError ?? null,
           manifestOutdated: (bot.manifestVersion ?? 1) < MANIFEST_VERSION,
+          activity: summarize(runtime?.activity ?? []),
         };
       }),
     };
+  }
+
+  /** A bot's latest requests, newest first. */
+  activity(botId: string): ReadonlyArray<ActivityEntry> {
+    if (!this.config.get().bots.some((bot) => bot.id === botId)) throw new NotFoundError("No such bot");
+    return [...(this.bots.get(botId)?.activity ?? [])].reverse();
   }
 
   // ── T3 threads ──────────────────────────────────────────────────────────
@@ -425,6 +433,19 @@ export class Engine {
 }
 
 export class NotFoundError extends Error {}
+
+/** What the bot list shows: the request in progress, and how today went. */
+function summarize(activity: ReadonlyArray<ActivityEntry>) {
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const today = activity.filter((entry) => Date.parse(entry.at) >= midnight.getTime());
+  return {
+    working: activity.findLast(isWorking) ?? null,
+    today: today.length,
+    problemsToday: today.filter((entry) => entry.error !== null || entry.status === "failed").length,
+    lastAt: activity.at(-1)?.updatedAt ?? null,
+  };
+}
 
 /** Bots set up with the agent manifest talk in Slack's AI-app layout, one thread per request. */
 function isAgentLayout(bot: BotConfig) {

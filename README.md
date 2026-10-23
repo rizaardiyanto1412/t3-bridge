@@ -39,26 +39,29 @@ Slack, and bookmark each link. On a single Mac without Tailscale, open the `127.
 | `npx t3-bridge link` | Print the control panel link again |
 | `npx t3-bridge status` | Show whether T3 Code and the bots are connected |
 
-To update, open the control panel's **Updates** card and choose **Update now**, or run
+The panel lists your bots in a sidebar. Each bot's **Conversation** tab shows every request from
+chat, what the agent is doing about it, its subagents, and anything that went wrong.
+
+To update, open **Settings** in the panel and choose **Update**, or run
 `npx t3-bridge@latest install`. Settings live in `~/Library/Application Support/T3 Bridge` and
 logs in `~/Library/Logs/T3 Bridge.log`.
 
-**Replace link** in **Open from other devices** issues a new link; every old copy stops working.
+**Replace link** under **Settings → Open from other devices** issues a new link; every old copy
+stops working. The QR code next to it opens the panel on your phone.
 
 ## Add a Slack bot
 
-In the control panel, choose **Add Slack bot** and follow the steps:
+In the control panel, choose **+ Add** and follow the four steps:
 
-1. Name the bot and copy the generated manifest.
-2. On api.slack.com/apps, choose **Create New App → From a manifest**, paste it, and install the
-   app to your workspace. Copy the **Bot User OAuth Token** (`xoxb-…`).
-3. Under **Basic Information → App-Level Tokens**, create a token with the `connections:write`
-   scope (`xapp-…`).
-4. Paste both tokens and choose **Test tokens**.
-5. Choose a thread, or create a new orchestrator thread. A new thread is pinned, runs with full
+1. Name the bot and choose **Create Slack app**. Slack opens with the app filled in; choose
+   **Create**, then **Install to Workspace**.
+2. Paste the **Bot User OAuth Token** (`xoxb-…`) and an app-level token with the
+   `connections:write` scope (`xapp-…`, under **Basic Information → App-Level Tokens**). They
+   are checked as you paste.
+3. Choose a thread, or create a new orchestrator thread. A new thread is pinned, runs with full
    access, and starts with the orchestrator instructions.
-6. Leave **Who may use it** empty to claim the bot by sending it a direct message, or list Slack
-   member IDs.
+4. Send the bot a direct message in Slack. The first person to do so becomes its owner; add
+   others under the bot's **Settings → Who may use it**.
 
 Message the bot directly, or invite it to a channel with `/invite @bot`. Both go to the same thread. In
 a channel, mention the bot (`@bot fix the login page`) or reply under one of its messages; other
@@ -66,9 +69,9 @@ channel chatter is ignored.
 
 ## Updating an existing bot's Slack app
 
-When a new version needs more Slack permissions, the bot's card shows **Update Slack app**. It
-gives you a new manifest to paste under **App Manifest** on api.slack.com, then asks you to
-reinstall the app. The tokens stay the same.
+When a new version needs more Slack permissions, the bot's **Slack app** tab says so. It gives
+you a new manifest to paste under **App Manifest** on api.slack.com, then asks you to reinstall
+the app. The tokens stay the same.
 
 ## In Slack
 

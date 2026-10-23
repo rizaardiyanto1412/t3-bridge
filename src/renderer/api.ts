@@ -72,6 +72,7 @@ export function makeApi(target: Target) {
     updateBot: (id: string, patch: Partial<BotInput>) =>
       call<Bot>("PATCH", `/api/bots/${id}`, patch),
     removeBot: (id: string) => call<unknown>("DELETE", `/api/bots/${id}`),
+    activity: (id: string) => call<{ entries: ActivityEntry[] }>("GET", `/api/bots/${id}/activity`),
     newThread: (id: string) =>
       call<{ threadId: string; title: string }>("POST", `/api/bots/${id}/new-thread`),
     updateInfo: () =>
@@ -126,6 +127,26 @@ export interface BotStatus extends Bot {
   readonly connection: { state: string; identity?: string; error?: string };
   readonly lastError: string | null;
   readonly manifestOutdated: boolean;
+  readonly activity: {
+    readonly working: ActivityEntry | null;
+    readonly today: number;
+    readonly problemsToday: number;
+    readonly lastAt: string | null;
+  };
+}
+
+export interface ActivityEntry {
+  readonly id: string;
+  readonly at: string;
+  readonly user: string;
+  readonly text: string;
+  readonly files: number;
+  readonly status: "running" | "completed" | "failed" | "interrupted" | "not_sent";
+  readonly subagents: ReadonlyArray<{ readonly id: string; readonly title: string; readonly status: string }>;
+  readonly waiting: "approval" | "question" | null;
+  readonly reply: string | null;
+  readonly error: string | null;
+  readonly updatedAt: string;
 }
 
 export interface BotInput {
