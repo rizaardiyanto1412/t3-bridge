@@ -134,9 +134,12 @@ T3_BRIDGE_PAIR_COMMAND='node apps/server/src/bin.ts auth pairing create --base-d
 node dist/cli.cjs
 ```
 
-To release, bump `version` in `package.json` and run `pnpm publish`. Installed copies offer the
-update in their control panel. Chat platforms plug in through `ChatAdapter` in
-`src/engine/core/types.ts`; Slack is the first adapter.
+To release, run `npm version patch` (or `minor`) and `git push --follow-tags`. The Release
+workflow publishes the new version to npm and creates a GitHub release with notes; installed
+copies then offer it under **Updates** in their control panel.
+
+Chat platforms plug in through `ChatAdapter` in `src/engine/core/types.ts`; Slack is the first
+adapter.
 
 ## License
 

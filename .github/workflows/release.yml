@@ -1,0 +1,32 @@
+# Publishes to npm when a version tag is pushed: `npm version patch && git push --follow-tags`.
+# npm trusts this workflow through trusted publishing (OIDC), so no npm token or 2FA code is
+# needed; set it up once under the package's Settings → Trusted Publisher on npmjs.com.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Tag matches package.json
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: pnpm install --frozen-lockfile
+      # prepublishOnly typechecks, tests and builds first.
+      - run: pnpm publish --access public --no-git-checks --provenance
+      - name: GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
