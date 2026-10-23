@@ -100,6 +100,8 @@ continue that request; start a new message for a new one.
   Slack thread.
 - Subagents show as Slack task cards that update while they run. The orchestrator's reply
   summarizes what they found; expand a card to see the start of its raw result.
+- Forwarded messages reach the agent with their text, author and link, plus their images and
+  files.
 - Images go both ways: pictures you attach in Slack reach the agent, and screenshots or images
   the agent shows (including ones it saved on the Mac) are uploaded to the thread.
 - HTML renders arrive as a screenshot plus the `.html` file.

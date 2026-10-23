@@ -67,7 +67,12 @@ function setup(
           return { ok: true, channel: args.channel, ts: `${++ts}.000` };
         return { ok: true };
       },
-      files: { info: async () => ({ file: { permalink: "https://x.slack.com/docs/T1/F123" } }) },
+      files: {
+        info: async ({ file }: { file: string }) =>
+          file === "F123"
+            ? { file: { permalink: "https://x.slack.com/docs/T1/F123" } }
+            : { file: { id: file, name: "Screenshot.png", mimetype: "image/png", size: 42, url_private_download: `https://files.slack.com/${file}` } },
+      },
       conversations: {
         open: async () => ({ channel: { id: "D9" } }),
         info: async () => ({ channel: { user: "U1" } }),
@@ -444,5 +449,34 @@ describe("SlackAdapter subagent plans", () => {
     );
     const types = calls.map((call) => (call.args.blocks as Array<{ type: string }>)[0]!.type);
     expect(types).toEqual(["plan", "task_card", "task_card"]);
+  });
+});
+
+describe("SlackAdapter forwarded messages", () => {
+  it("passes on a forwarded message's text and its files, looking up missing download links", async () => {
+    const { inbound, onMessage } = setup();
+    await onMessage({
+      type: "message",
+      channel: "C1",
+      channel_type: "channel",
+      user: "U1",
+      ts: "9.9",
+      text: "<@UBOT> can you repro this?",
+      attachments: [
+        {
+          is_share: true,
+          author_name: "Tyler",
+          from_url: "https://x.slack.com/archives/D1/p1",
+          text: "Incremental backups are no longer working &amp; it runs full ones",
+          files: [{ id: "F777", name: "Screenshot.png" }],
+        },
+      ],
+    });
+    const message = inbound[0]!;
+    expect(message.text).toContain("can you repro this?");
+    expect(message.text).toContain("Forwarded message from Tyler (https://x.slack.com/archives/D1/p1), with 1 file attached:");
+    expect(message.text).toContain("> Incremental backups are no longer working & it runs full ones");
+    expect(message.files).toHaveLength(1);
+    expect(message.files[0]).toMatchObject({ name: "Screenshot.png", mimeType: "image/png" });
   });
 });

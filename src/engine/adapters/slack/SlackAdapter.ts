@@ -7,6 +7,7 @@ import type {
   ChatAdapter,
   ConversationRef,
   ImageRef,
+  InboundFile,
   InboundMessage,
   MessageRef,
   OutboundPost,
@@ -55,7 +56,7 @@ interface PendingForward {
   readonly ts: string;
   readonly author: string;
   readonly text: string;
-  readonly files: SlackEventMessage["files"];
+  readonly files: SlackFile[] | undefined;
 }
 
 /** Verifies both tokens before they are saved: the bot token against auth.test, the app token by opening a socket URL. */
@@ -71,6 +72,29 @@ export async function testSlackTokens(tokens: SlackTokens) {
   return { team: auth.team ?? "", botUser: auth.user ?? "", botUserId: auth.user_id ?? "" };
 }
 
+type SlackFile = {
+  id: string;
+  name?: string;
+  mimetype?: string;
+  size?: number;
+  url_private_download?: string;
+};
+
+/** A forwarded or shared message rides along in `attachments`, with its own text and files. */
+interface SlackSharedMessage {
+  is_share?: boolean;
+  is_msg_unfurl?: boolean;
+  author_id?: string;
+  author_name?: string;
+  author_subname?: string;
+  channel_name?: string;
+  from_url?: string;
+  text?: string;
+  fallback?: string;
+  files?: SlackFile[];
+  message_blocks?: Array<{ message?: { text?: string; files?: SlackFile[] } }>;
+}
+
 interface SlackEventMessage {
   type: string;
   subtype?: string;
@@ -82,13 +106,8 @@ interface SlackEventMessage {
   ts: string;
   thread_ts?: string;
   team?: string;
-  files?: Array<{
-    id: string;
-    name?: string;
-    mimetype?: string;
-    size?: number;
-    url_private_download?: string;
-  }>;
+  attachments?: SlackSharedMessage[];
+  files?: SlackFile[];
 }
 
 /**
@@ -257,19 +276,13 @@ export class SlackAdapter implements ChatAdapter {
       userName: await this.userName(event.user),
       isDirect,
       mentionsBot,
-      text: decodeSlackText(text),
-      files: (event.files ?? []).flatMap((file) =>
-        file.url_private_download
-          ? [
-              {
-                name: file.name ?? file.id,
-                mimeType: file.mimetype ?? "application/octet-stream",
-                sizeBytes: file.size ?? 0,
-                download: () => this.downloadFile(file.url_private_download!),
-              },
-            ]
-          : [],
-      ),
+      text: [decodeSlackText(text), ...(await this.sharedMessagesText(event.attachments))]
+        .filter(Boolean)
+        .join("\n\n"),
+      files: await this.inboundFiles([
+        ...(event.files ?? []),
+        ...sharedMessages(event.attachments).flatMap((shared) => sharedFiles(shared)),
+      ]),
       replyTo:
         event.thread_ts && event.thread_ts !== event.ts
           ? { channel: event.channel, ts: event.thread_ts }
@@ -434,20 +447,62 @@ export class SlackAdapter implements ChatAdapter {
       isDirect: true,
       mentionsBot: true,
       text,
-      files: (pending.files ?? []).flatMap((file) =>
-        file.url_private_download
-          ? [
-              {
-                name: file.name ?? file.id,
-                mimeType: file.mimetype ?? "application/octet-stream",
-                sizeBytes: file.size ?? 0,
-                download: () => this.downloadFile(file.url_private_download!),
-              },
-            ]
-          : [],
-      ),
+      files: await this.inboundFiles(pending.files ?? []),
       replyTo: null,
     });
+  }
+
+  /** Forwarded messages, quoted for the agent with who wrote them and where. */
+  private async sharedMessagesText(attachments: SlackSharedMessage[] | undefined): Promise<string[]> {
+    const quoted: string[] = [];
+    if ((attachments?.length ?? 0) > 0) {
+      // Slack's forwarding format is loosely documented; the shape helps if one is missed.
+      this.log.info(
+        `[${this.name}] message carries ${attachments!.length} attachment(s): ${attachments!
+          .map((attachment) => `{${Object.keys(attachment).sort().join(",")}}`)
+          .join(" ")}`,
+      );
+    }
+    for (const shared of sharedMessages(attachments)) {
+      const body = decodeSlackText(
+        shared.text ?? shared.message_blocks?.map((block) => block.message?.text ?? "").join("\n") ?? shared.fallback ?? "",
+      ).trim();
+      const author = shared.author_name ?? (shared.author_id ? await this.userName(shared.author_id) : "someone");
+      const files = sharedFiles(shared).length;
+      const header = `Forwarded message from ${author}${shared.channel_name ? ` in #${shared.channel_name}` : ""}${shared.from_url ? ` (${shared.from_url})` : ""}${files > 0 ? `, with ${files} file${files === 1 ? "" : "s"} attached` : ""}:`;
+      quoted.push([header, ...(body || "(no text)").split("\n").map((line) => `> ${line}`)].join("\n"));
+    }
+    return quoted;
+  }
+
+  /**
+   * Files a message carries. Files inside a forwarded message often come without a download
+   * link; files.info supplies it, as long as the bot can see the conversation they were shared in.
+   */
+  private async inboundFiles(files: ReadonlyArray<SlackFile>): Promise<InboundFile[]> {
+    const result: InboundFile[] = [];
+    const seen = new Set<string>();
+    for (const listed of files) {
+      if (seen.has(listed.id)) continue;
+      seen.add(listed.id);
+      let file = listed;
+      if (!file.url_private_download) {
+        const info = await this.web.files.info({ file: file.id }).catch((error: unknown) => {
+          this.log.warn(`[${this.name}] cannot read forwarded file ${file.name ?? file.id}`, error);
+          return null;
+        });
+        if (info?.file) file = { ...file, ...(info.file as SlackFile) };
+      }
+      const url = file.url_private_download;
+      if (!url) continue;
+      result.push({
+        name: file.name ?? file.id,
+        mimeType: file.mimetype ?? "application/octet-stream",
+        sizeBytes: file.size ?? 0,
+        download: () => this.downloadFile(url),
+      });
+    }
+    return result;
   }
 
   private async userName(userId: string) {
@@ -981,6 +1036,23 @@ export class SlackAdapter implements ChatAdapter {
     } as never);
     return { channel: conversation.id, uploaded: "1" };
   }
+}
+
+function sharedMessages(attachments: SlackSharedMessage[] | undefined): SlackSharedMessage[] {
+  return (attachments ?? []).filter(
+    (attachment) =>
+      attachment.is_share === true ||
+      attachment.is_msg_unfurl === true ||
+      attachment.message_blocks !== undefined ||
+      (attachment.files?.length ?? 0) > 0,
+  );
+}
+
+function sharedFiles(shared: SlackSharedMessage): SlackFile[] {
+  return [
+    ...(shared.files ?? []),
+    ...(shared.message_blocks ?? []).flatMap((block) => block.message?.files ?? []),
+  ];
 }
 
 /** Where a new post goes: the conversation, inside its thread when it has one. */
