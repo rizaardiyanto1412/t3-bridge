@@ -85,9 +85,10 @@ export class Updater {
     await writeJsonAtomic(this.statusFile, status);
     const log = FS.openSync(Path.join(this.dataDir, "update.log"), "w");
     // Detached in its own process group, because installing the new version ends this process.
+    // --prefer-online: npm's cached package list can predate the release the check just saw.
     const child = ChildProcess.spawn(
       "npx",
-      ["--yes", `t3-bridge@${latest}`, "install", "--status-file", this.statusFile],
+      ["--yes", "--prefer-online", `t3-bridge@${latest}`, "install", "--status-file", this.statusFile],
       { detached: true, stdio: ["ignore", log, log] },
     );
     child.once("exit", (code) => {
