@@ -38,6 +38,8 @@
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
     "@slack/socket-mode": "3.1.0",
     "@slack/web-api": "8.2.0",
     "@t3tools/contracts": "workspace:*",
@@ -48,6 +50,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "effect": "4.0.5",
+    "lucide-react": "^1.61.0",
     "qrcode": "1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

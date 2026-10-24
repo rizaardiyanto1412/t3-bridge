@@ -1,45 +1,22 @@
-import QRCode from "qrcode";
+import { Check, Copy, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { adoptToken, type Api, type LogEntry, type Status, type UpdateCheck, type UpdateStatus } from "./api.ts";
-import { copyText, errorText, go } from "./shared.tsx";
+import { errorText, maskedLink, TopNav, useCopied, useQr } from "./shared.tsx";
 
 export function SettingsView({ api, status }: { api: Api; status: Status }) {
   return (
     <div className="page">
-      <div className="page-head">
-        <button className="btn ghost icon back" onClick={() => go({ page: "home" })} aria-label="Back">
-          ←
-        </button>
-        <div className="grow">
-          <h1>Settings</h1>
-          <div className="subtitle">T3 Bridge on {status.t3.label || "this Mac"}</div>
-        </div>
-      </div>
-      <div className="stack" style={{ marginTop: 16 }}>
+      <TopNav crumbs={["Settings"]} action="back" />
+      <h1 className="title">Settings</h1>
+      <div className="settings-grid">
         <OtherDevices api={api} status={status} />
-        <Updates api={api} />
-        <div className="card">
-          <h2>This Mac</h2>
-          <p className="muted small">
-            T3 Bridge runs in the background and starts at login. From a terminal on this Mac:
-          </p>
-          <div className="small" style={{ display: "grid", gap: 4 }}>
-            <span>
-              <code>npx t3-bridge status</code> <span className="muted">· is everything connected</span>
-            </span>
-            <span>
-              <code>npx t3-bridge link</code> <span className="muted">· print the panel link</span>
-            </span>
-            <span>
-              <code>npx t3-bridge uninstall</code> <span className="muted">· stop it; bots and settings are kept</span>
-            </span>
-            <span className="muted">
-              Logs: <code>~/Library/Logs/T3 Bridge.log</code>
-            </span>
-          </div>
+        <div className="side">
+          <ThisMac status={status} />
+          <Updates api={api} version={status.version} />
         </div>
         <RawLog api={api} />
+        <Terminal />
       </div>
     </div>
   );
@@ -47,64 +24,78 @@ export function SettingsView({ api, status }: { api: Api; status: Status }) {
 
 function OtherDevices({ api, status }: { api: Api; status: Status }) {
   const link = status.connectLinks[0];
-  const [qr, setQr] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (link === undefined) return;
-    void QRCode.toDataURL(link, { margin: 0, width: 192 }).then(setQr);
-  }, [link]);
+  const qr = useQr(link);
+  const [copied, copy] = useCopied();
   return (
-    <div className="card">
-      <h2>Open from other devices</h2>
-      {link === undefined ? (
-        <p className="muted small">
-          This Mac has no Tailscale address, so only this Mac can open the panel. Install
-          Tailscale, then run <code>npx t3-bridge link</code>.
-        </p>
-      ) : (
-        <>
-          <p className="muted small">
-            Any device on your Tailscale network. Bookmark the link; it works like a password.
+    <section className="dark-card devices">
+      <div className="qr-box">{qr ? <img src={qr} alt="QR code of the panel link" /> : <span className="muted small">No link</span>}</div>
+      <div className="devices-copy">
+        <h2 className="dark-title big">Open from other devices</h2>
+        {link === undefined ? (
+          <p>
+            This Mac has no Tailscale address, so only this Mac can open the panel. Install Tailscale, then run{" "}
+            <code>npx t3-bridge link</code>.
           </p>
-          <div className="link-row">
-            {qr && <img className="qr" src={qr} alt="QR code of the panel link" />}
-            <div className="stack tight" style={{ flex: 1, minWidth: 0 }}>
-              <span className="small muted">Scan with your phone's camera, or:</span>
-              <code style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {link.replace(/token=.*/, "token=••••••")}
-              </code>
-              <div className="row wrap">
-                <button
-                  className="btn sm"
-                  onClick={() => {
-                    copyText(link);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 1500);
-                  }}
-                >
-                  {copied ? "Copied" : "Copy link"}
-                </button>
-                <button
-                  className="btn sm ghost"
-                  onClick={async () => {
-                    if (!confirm("Replace the link? Every copy of the old link stops working, including bookmarks on other devices.")) return;
-                    const result = await api.rotateLink();
-                    adoptToken(result.token);
-                  }}
-                >
-                  Replace link
-                </button>
-              </div>
+        ) : (
+          <>
+            <p>
+              Scan with your phone's camera, or copy the link. Anyone with it can control your bots, so treat it like a
+              password.
+            </p>
+            <div className="link-row">
+              <span className="mono">{maskedLink(link)}</span>
+              <button className="btn lime sm" onClick={() => copy(link)}>
+                <Copy size={14} />
+                {copied ? "Copied" : "Copy link"}
+              </button>
             </div>
-          </div>
-        </>
-      )}
-    </div>
+            <button
+              className="link light"
+              onClick={async () => {
+                if (!confirm("Replace the link? Every copy of the old link stops working, including bookmarks on other devices.")) return;
+                const result = await api.rotateLink();
+                adoptToken(result.token);
+              }}
+            >
+              <RefreshCw size={14} />
+              Replace link
+              <span className="faint-light">· every old copy stops working</span>
+            </button>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ThisMac({ status }: { status: Status }) {
+  const t3 = status.t3;
+  const link = status.connectLinks[0];
+  const address = link ? new URL(link).hostname : null;
+  return (
+    <section className="card small-card">
+      <h2 className="small-title">This Mac</h2>
+      <div className="kv">
+        <span>Computer</span>
+        <b>{t3.label || location.hostname}</b>
+      </div>
+      <div className="kv" title={t3.error}>
+        <span>T3 Code</span>
+        <b className="row">
+          <span className={`dot ${t3.state === "connected" ? "ok" : t3.state === "connecting" ? "pending" : "bad"}`} />
+          {t3.state === "connected" ? "Connected" : t3.state === "connecting" ? "Connecting…" : "Not connected"}
+        </b>
+      </div>
+      <div className="kv">
+        <span>Tailscale</span>
+        {address ? <b className="mono">{address}</b> : <b className="muted">Not set up</b>}
+      </div>
+    </section>
   );
 }
 
 /** Installs the newest version from npm and restarts the background service, without a terminal. */
-function Updates({ api }: { api: Api }) {
+function Updates({ api, version }: { api: Api; version: string }) {
   const [info, setInfo] = useState<{ supported: boolean; current: string } | null>(null);
   const [check, setCheck] = useState<UpdateCheck | null>(null);
   const [checking, setChecking] = useState(false);
@@ -134,8 +125,8 @@ function Updates({ api }: { api: Api }) {
       } else if (status?.state === "failed") {
         setProgress(status);
       }
+      if (result.supported) void runCheck();
     });
-    void runCheck();
   }, [api]);
 
   // While updating, T3 Bridge restarts and briefly stops answering; keep asking until the
@@ -157,8 +148,6 @@ function Updates({ api }: { api: Api }) {
     return () => clearInterval(timer);
   }, [api, startedAt]);
 
-  if (info === null || !info.supported) return null;
-
   const update = async () => {
     setError(null);
     try {
@@ -173,85 +162,114 @@ function Updates({ api }: { api: Api }) {
   };
 
   const updating = startedAt !== null;
+  const current = info?.current ?? version;
   return (
-    <div className="card">
-      <div className="row spread wrap">
-        <div>
-          <h2>Updates</h2>
-          <p className="muted small" style={{ margin: "3px 0 0" }}>
-            T3 Bridge {info.current}
-            {!updating && check && !check.available && " · you're on the latest version"}
-          </p>
-        </div>
-        {!updating && check?.available ? (
-          <button className="btn primary" onClick={() => void update()}>
-            Update to {check.latest}
-          </button>
+    <section className="card small-card">
+      <div className="kv">
+        <h2 className="small-title">Updates</h2>
+        {check?.available ? (
+          <span className="badge warn">v{check.latest} available</span>
         ) : (
-          !updating && (
-            <button className="btn sm" disabled={checking} onClick={() => void runCheck()}>
-              {checking ? "Checking…" : "Check now"}
-            </button>
-          )
+          <span className="badge dark">
+            {check && <Check size={12} />}v{current}
+            {check ? " · latest" : ""}
+          </span>
         )}
       </div>
-      {!updating && check?.available && (
-        <p className="small" style={{ marginBottom: 0 }}>
-          <a href="https://github.com/rizaardiyanto1412/t3-bridge/releases" target="_blank" rel="noreferrer">
-            What's new
-          </a>
+      {info !== null && !info.supported ? (
+        <p className="small-text">
+          This copy of T3 Bridge wasn't installed as a background service, so update it from a terminal with{" "}
+          <code>npx t3-bridge@latest install</code>.
         </p>
-      )}
-      {updating && progress && (
-        <p className="row small" style={{ marginBottom: 0 }}>
-          <span className="dot working" /> {progress.step}…{" "}
-          <span className="muted">The bots pause for a moment while T3 Bridge restarts.</span>
+      ) : updating && progress ? (
+        <p className="small-text row">
+          <span className="dot working" /> {progress.step}… The bots pause for a moment while T3 Bridge restarts.
         </p>
+      ) : (
+        <>
+          <p className="small-text">
+            The bots pause for a moment while T3 Bridge restarts.
+            {check?.available && (
+              <>
+                {" "}
+                <a href="https://github.com/rizaardiyanto1412/t3-bridge/releases" target="_blank" rel="noreferrer">
+                  What's new
+                </a>
+              </>
+            )}
+          </p>
+          <div>
+            {check?.available ? (
+              <button className="btn primary" onClick={() => void update()}>
+                Update to {check.latest}
+              </button>
+            ) : (
+              <button className="btn outline" disabled={checking || info === null} onClick={() => void runCheck()}>
+                <RefreshCw size={14} className={checking ? "spin" : ""} />
+                {checking ? "Checking…" : "Check now"}
+              </button>
+            )}
+          </div>
+        </>
       )}
-      {!updating && progress?.state === "failed" && (
-        <p className="error-text small" style={{ marginBottom: 0 }}>
-          The last update failed: {progress.error}
-        </p>
-      )}
-      {error && <p className="error-text small" style={{ marginBottom: 0 }}>{error}</p>}
-    </div>
+      {!updating && progress?.state === "failed" && <p className="error-text small">The last update failed: {progress.error}</p>}
+      {error && <p className="error-text small">{error}</p>}
+    </section>
   );
 }
 
+const LEVEL_LABEL = { info: "INFO", warn: "WARN", error: "ERROR" } as const;
+
 function RawLog({ api }: { api: Api }) {
-  const [open, setOpen] = useState(false);
-  const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [entries, setEntries] = useState<LogEntry[] | null>(null);
   useEffect(() => {
-    if (!open) return;
-    const load = () => void api.logs().then((result) => setEntries(result.entries));
+    const load = () => void api.logs().then((result) => setEntries(result.entries)).catch(() => {});
     load();
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
-  }, [api, open]);
+  }, [api]);
   return (
-    <div className="card">
-      <div className="row spread">
-        <div>
-          <h2>Log</h2>
-          <p className="muted small" style={{ margin: "3px 0 0" }}>
-            What T3 Bridge did, line by line. Useful when something doesn't arrive.
-          </p>
-        </div>
-        <button className="btn sm" onClick={() => setOpen(!open)}>
-          {open ? "Hide" : "Show"}
-        </button>
+    <section className="card small-card log-card">
+      <div className="kv">
+        <h2 className="small-title">Log</h2>
+        <span className="mono path">~/Library/Logs/T3 Bridge.log</span>
       </div>
-      {open && (
-        <pre className="log">
-          {entries.length === 0
+      <div className="log">
+        {entries === null
+          ? "Loading…"
+          : entries.length === 0
             ? "Nothing yet."
             : entries
                 .slice()
                 .reverse()
-                .map((entry) => `${entry.at.slice(11, 19)} ${entry.level === "info" ? " " : entry.level === "warn" ? "!" : "✗"} ${entry.message}`)
-                .join("\n")}
-        </pre>
-      )}
-    </div>
+                .map((entry, index) => (
+                  <div key={index} className="log-line">
+                    <span className="faint">{new Date(entry.at).toTimeString().slice(0, 8)}</span>
+                    <span className={`level ${entry.level}`}>{LEVEL_LABEL[entry.level]}</span>
+                    <span>{entry.message}</span>
+                  </div>
+                ))}
+      </div>
+    </section>
+  );
+}
+
+const COMMANDS = [
+  ["npx t3-bridge link", "print the panel link"],
+  ["npx t3-bridge status", "is everything connected"],
+  ["npx t3-bridge uninstall", "stop it; bots and settings are kept"],
+] as const;
+
+function Terminal() {
+  return (
+    <section className="card small-card">
+      <h2 className="small-title">From the terminal</h2>
+      {COMMANDS.map(([command, what]) => (
+        <div key={command} className="command">
+          <span className="mono">$ {command}</span>
+          <span>{what}</span>
+        </div>
+      ))}
+    </section>
   );
 }

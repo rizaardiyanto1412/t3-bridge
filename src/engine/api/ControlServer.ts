@@ -171,6 +171,11 @@ export class ControlServer {
       return { entries: engine.activity(activityMatch[1]!) };
     const freshMatch = /^\/api\/bots\/([\w-]+)\/new-thread$/.exec(path);
     if (method === "POST" && freshMatch !== null) return engine.startFreshThread(freshMatch[1]!);
+    const stopMatch = /^\/api\/bots\/([\w-]+)\/stop$/.exec(path);
+    if (method === "POST" && stopMatch !== null) {
+      await engine.stopAgent(stopMatch[1]!);
+      return { stopped: true };
+    }
     const botMatch = /^\/api\/bots\/([\w-]+)$/.exec(path);
     if (botMatch !== null) {
       if (method === "PATCH") return engine.updateBot(botMatch[1]!, body as Partial<BotInput>);

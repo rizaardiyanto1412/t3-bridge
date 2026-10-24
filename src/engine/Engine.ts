@@ -361,6 +361,13 @@ export class Engine {
     return fresh;
   }
 
+  async stopAgent(botId: string) {
+    const runtime = this.bots.get(botId);
+    if (runtime === undefined) throw new NotFoundError("No such bot");
+    await runtime.stopThread();
+    this.log.info(`[${runtime.bot.name}] Stopped from the control panel`);
+  }
+
   /** Replaces the control panel token; every link copied before stops working. */
   async rotateControlToken(): Promise<string> {
     const token = Crypto.randomBytes(24).toString("base64url");
