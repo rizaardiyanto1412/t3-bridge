@@ -4,8 +4,10 @@ import * as Http from "node:http";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
+import { testDiscordToken } from "../adapters/discord/DiscordAdapter.ts";
 import { slackManifest } from "../adapters/slack/manifest.ts";
 import { testSlackTokens } from "../adapters/slack/SlackAdapter.ts";
+import { testTelegramToken } from "../adapters/telegram/TelegramAdapter.ts";
 import { DEFAULT_INSTRUCTIONS } from "../core/render.ts";
 import { NotFoundError, type BotInput, type Engine } from "../Engine.ts";
 import type { Updater } from "../updater.ts";
@@ -157,6 +159,8 @@ export class ControlServer {
     if (method === "GET" && path === "/api/slack/manifest")
       return slackManifest(url.searchParams.get("name") ?? "T3 Bridge");
     if (method === "POST" && path === "/api/slack/test") return testSlackTokens(body as never);
+    if (method === "POST" && path === "/api/discord/test") return testDiscordToken(body as never);
+    if (method === "POST" && path === "/api/telegram/test") return testTelegramToken(body as never);
     if (method === "POST" && path === "/api/bots") return engine.addBot(body as BotInput);
     if (method === "POST" && path === "/api/control/rotate") {
       const token = await engine.rotateControlToken();

@@ -4,7 +4,7 @@ import * as Path from "node:path";
 
 import type { LocalEnvironmentOptions } from "./t3/localEnvironment.ts";
 
-export type Platform = "slack";
+export type Platform = "slack" | "discord" | "telegram";
 
 export interface BotConfig {
   readonly id: string;
@@ -18,6 +18,8 @@ export interface BotConfig {
   readonly instructions: string;
   /** Prefix every chat message with a one-line reminder of the orchestrator role. */
   readonly reminder: boolean;
+  /** The platform account the bot runs as, for links in the control panel (Discord, Telegram). */
+  readonly account?: { readonly username: string; readonly applicationId?: string };
   /** Which version of the Slack manifest the app was last set up with; see MANIFEST_VERSION. */
   readonly manifestVersion?: number;
   readonly createdAt: string;

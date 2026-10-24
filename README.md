@@ -1,9 +1,10 @@
 # T3 Bridge
 
-Chat with a T3 Code thread from Slack. Each bot is one Slack app talking to one T3 thread. That
-thread acts as an **orchestrator**: it never does the work itself, it hands each task to a
-subagent and reports back. Replies, subagent progress, approvals, and questions show up in
-Slack; your messages, files, and button clicks go back to T3.
+Chat with a T3 Code thread from Slack, Discord or Telegram. Each bot is one Slack app, Discord
+bot or Telegram bot talking to one T3 thread. That thread acts as an **orchestrator**: it never
+does the work itself, it hands each task to a subagent and reports back. Replies, subagent
+progress, approvals, and questions show up in chat; your messages, files, and button clicks go
+back to T3.
 
 T3 Bridge runs next to [T3 Code](https://github.com/pingdotgg/t3code) as its own program. It
 talks to T3 Code the same way the T3 mobile app does, so updating T3 Code does not touch it. If
@@ -26,10 +27,10 @@ npx t3-bridge install
 T3 Bridge now runs in the background, starts at login, and pairs with T3 Code by itself. The
 command prints the control panel link, `http://<tailscale-ip>:47821/#token=…`. Open it in any
 browser on your Tailscale network, your phone included, and bookmark it. Everything else,
-adding Slack bots included, happens in that page. The link works like a password.
+adding bots included, happens in that page. The link works like a password.
 
 With T3 Code on more than one Mac, run the same command on each Mac whose threads you want in
-Slack, and bookmark each link. On a single Mac without Tailscale, open the `127.0.0.1` link.
+chat, and bookmark each link. On a single Mac without Tailscale, open the `127.0.0.1` link.
 
 | Command | |
 |---|---|
@@ -51,7 +52,7 @@ stops working. The QR code next to it opens the panel on your phone.
 
 ## Add a Slack bot
 
-In the control panel, choose **+ Add** and follow the four steps:
+In the control panel, choose **+ Add**, pick **Slack**, and follow the four steps:
 
 1. Name the bot and choose **Create Slack app**. Slack opens with the app filled in; choose
    **Create**, then **Install to Workspace**.
@@ -66,6 +67,36 @@ In the control panel, choose **+ Add** and follow the four steps:
 Message the bot directly, or invite it to a channel with `/invite @bot`. Both go to the same thread. In
 a channel, mention the bot (`@bot fix the login page`) or reply under one of its messages; other
 channel chatter is ignored.
+
+## Add a Discord bot
+
+In the control panel, choose **+ Add**, pick **Discord**, and follow the four steps:
+
+1. Name the bot and open the Discord developer portal. Choose **New Application**, then under
+   **Bot** choose **Reset Token** and copy the token. Optionally turn on **Message Content
+   Intent** there too, so the bot also reads replies that don't mention it.
+2. Paste the token. It is checked as you paste; then choose **Add to a server**. Discord only
+   lets people message a bot they share a server with.
+3. Choose a thread, or create a new orchestrator thread.
+4. Send the bot a direct message (its profile → **Message**). The first person to do so becomes
+   its owner; add others by Discord user ID under the bot's **Settings → Who may use it**
+   (turn on Developer Mode, then right-click a person → **Copy User ID**).
+
+In a server channel, mention the bot (`@bot fix the login page`) or reply to one of its messages.
+
+## Add a Telegram bot
+
+In the control panel, choose **+ Add**, pick **Telegram**, and follow the four steps:
+
+1. Name the bot and open [@BotFather](https://t.me/BotFather). Send `/newbot`, a display name,
+   and a username ending in `bot`. BotFather replies with a token like `123456:ABC…`.
+2. Paste the token. It is checked as you paste.
+3. Choose a thread, or create a new orchestrator thread.
+4. Open the bot in Telegram and press **Start**. The first person to do so becomes its owner; add
+   others by their numeric Telegram user ID (the bot tells people theirs when it turns them away).
+
+In a group, mention the bot (`@your_bot fix the login page`), reply to one of its messages, or use
+`/stop` and `/new`. Forum topics work too: the bot answers in the topic it was asked in.
 
 ## Updating an existing bot's Slack app
 
@@ -106,6 +137,26 @@ continue that request; start a new message for a new one.
 
 Only allowed people can send work. The bot runs code on your Mac, so keep that list short.
 
+## In Discord and Telegram
+
+Discord and Telegram bots work like a Slack bot without the AI-app layout: replies go straight
+into the conversation, the request they answer gets a reaction, and the reply is edited in place
+while it is written.
+
+- Your message gets 👀 while the agent works, then ✅, ❌ or ⏹ in Discord, or 👍, 👎 or 🤷 in
+  Telegram (which only allows certain reactions). The bot shows "typing…" while it works.
+- Send `!stop` (in Telegram also `/stop`), or in Discord react with 🛑, to stop the agent. `!new`
+  (`/new`) starts a fresh orchestrator thread.
+- Approvals and single-choice questions arrive with buttons. Reply to a question's message to
+  answer in your own words, or to answer a question with several parts. Buttons keep working
+  after T3 Bridge restarts.
+- Long reports (over about 6,000 characters) arrive as a short preview with the whole reply
+  attached as a `.md` file. Shorter replies that don't fit one message continue in the next.
+- Images, files and forwarded messages reach the agent; Telegram albums arrive as one request.
+  Telegram bots can only download files up to 20 MB.
+- Images the agent shows are uploaded to the chat, and HTML pages it renders arrive as an
+  `.html` file.
+
 ## Keeping up with T3 Code
 
 The bridge speaks T3 Code's WebSocket protocol using T3 Code's own contract definitions, copied
@@ -141,8 +192,10 @@ To release, run `npm version patch` (or `minor`) and `git push --follow-tags`. T
 workflow publishes the new version to npm and creates a GitHub release with notes; installed
 copies then offer it under **Updates** in their control panel.
 
-Chat platforms plug in through `ChatAdapter` in `src/engine/core/types.ts`; Slack is the first
-adapter.
+Chat platforms plug in through `ChatAdapter` in `src/engine/core/types.ts`. Slack, Discord
+(gateway WebSocket) and Telegram (long polling) are in `src/engine/adapters`; none of them needs
+a public URL. Discord and Telegram share the plain-markdown rendering in
+`src/engine/core/chatText.ts`.
 
 ## License
 

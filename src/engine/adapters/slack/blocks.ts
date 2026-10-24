@@ -7,7 +7,8 @@ import type {
   SubagentStatus,
   SubagentTask,
 } from "../../core/types.ts";
-import { notificationText, toMrkdwn, truncate } from "./format.ts";
+import { truncate } from "../../core/markdown.ts";
+import { notificationText, toMrkdwn } from "./format.ts";
 
 // Block Kit is a wide union; these posts only use a handful of shapes, kept loose on purpose.
 export type Block = Record<string, unknown>;

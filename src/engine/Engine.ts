@@ -11,9 +11,12 @@ import {
 } from "@t3tools/contracts";
 
 import { AGENT_LAYOUT_MANIFEST_VERSION, MANIFEST_VERSION } from "./adapters/slack/manifest.ts";
+import { DiscordAdapter, discordInviteUrl, testDiscordToken } from "./adapters/discord/DiscordAdapter.ts";
 import { SlackAdapter, testSlackTokens } from "./adapters/slack/SlackAdapter.ts";
+import { TelegramAdapter, testTelegramToken } from "./adapters/telegram/TelegramAdapter.ts";
 import { isWorking, type ActivityEntry } from "./core/activity.ts";
 import { BotRuntime } from "./core/BotRuntime.ts";
+import { ButtonStore } from "./core/ButtonStore.ts";
 import { DEFAULT_INSTRUCTIONS } from "./core/render.ts";
 import type { ChatAdapter } from "./core/types.ts";
 import { makeLogger } from "./log.ts";
@@ -23,6 +26,7 @@ import {
   writeJsonAtomic,
   type BotConfig,
   type BridgeConfig,
+  type Platform,
   type SecretStore,
 } from "./store.ts";
 import { makeLocalCredentials, type LocalEnvironmentOptions } from "./t3/localEnvironment.ts";
@@ -41,8 +45,10 @@ export interface EngineOptions {
 
 export interface BotInput {
   readonly name: string;
-  readonly platform: "slack";
+  readonly platform: Platform;
   readonly slack?: { readonly botToken: string; readonly appToken: string };
+  readonly discord?: { readonly botToken: string };
+  readonly telegram?: { readonly botToken: string };
   readonly threadId: string | null;
   readonly allowedUserIds?: ReadonlyArray<string>;
   readonly instructions?: string;
@@ -65,6 +71,12 @@ export interface ThreadSummary {
 }
 
 const botSecret = (botId: string, name: string) => `bot.${botId}.${name}`;
+
+const PLATFORM_LABELS: Record<Platform, string> = {
+  slack: "Slack",
+  discord: "Discord",
+  telegram: "Telegram",
+};
 
 export class Engine {
   readonly log;
@@ -122,7 +134,8 @@ export class Engine {
             error: "Not running",
           },
           lastError: runtime?.lastError ?? null,
-          manifestOutdated: (bot.manifestVersion ?? 1) < MANIFEST_VERSION,
+          manifestOutdated: bot.platform === "slack" && (bot.manifestVersion ?? 1) < MANIFEST_VERSION,
+          chatLink: chatLink(bot),
           activity: summarize(runtime?.activity ?? []),
         };
       }),
@@ -257,22 +270,23 @@ export class Engine {
 
   async addBot(input: BotInput) {
     const id = Crypto.randomUUID();
-    if (input.platform === "slack" && this.options.makeAdapter === undefined) {
-      if (!input.slack) throw new Error("Slack bots need a bot token and an app-level token.");
-      await testSlackTokens(input.slack);
-      await this.options.secrets.set(botSecret(id, "botToken"), input.slack.botToken.trim());
-      await this.options.secrets.set(botSecret(id, "appToken"), input.slack.appToken.trim());
-    }
+    if (!(input.platform in PLATFORM_LABELS)) throw new Error(`Unknown platform ${input.platform}`);
+    const saved =
+      this.options.makeAdapter === undefined
+        ? await this.saveCredentials(id, input.platform, input)
+        : {};
+    if (saved === null) throw new Error(`${PLATFORM_LABELS[input.platform]} bots need a token.`);
     const bot: BotConfig = {
       id,
       name: input.name.trim() || "T3 Bot",
       platform: input.platform,
+      ...(saved.account ? { account: saved.account } : {}),
       enabled: input.enabled ?? true,
       threadId: input.threadId,
       allowedUserIds: input.allowedUserIds ?? [],
       instructions: input.instructions?.trim() || DEFAULT_INSTRUCTIONS,
       reminder: input.reminder ?? true,
-      manifestVersion: MANIFEST_VERSION,
+      ...(input.platform === "slack" ? { manifestVersion: MANIFEST_VERSION } : {}),
       createdAt: new Date().toISOString(),
     };
     await this.config.update((config) => ({ ...config, bots: [...config.bots, bot] }));
@@ -285,13 +299,10 @@ export class Engine {
   async updateBot(id: string, patch: Partial<BotInput>) {
     const current = this.config.get().bots.find((bot) => bot.id === id);
     if (current === undefined) throw new NotFoundError("No such bot");
-    if (patch.slack) {
-      await testSlackTokens(patch.slack);
-      await this.options.secrets.set(botSecret(id, "botToken"), patch.slack.botToken.trim());
-      await this.options.secrets.set(botSecret(id, "appToken"), patch.slack.appToken.trim());
-    }
+    const saved = await this.saveCredentials(id, current.platform, patch);
     const next: BotConfig = {
       ...current,
+      ...(saved?.account ? { account: saved.account } : {}),
       ...(patch.name === undefined ? {} : { name: patch.name.trim() || current.name }),
       ...(patch.threadId === undefined ? {} : { threadId: patch.threadId }),
       ...(patch.allowedUserIds === undefined
@@ -369,6 +380,35 @@ export class Engine {
     await this.options.secrets.delete(botSecret(id, "appToken"));
   }
 
+  /**
+   * Checks and stores a bot's token(s) when the input carries them for its platform, with the
+   * account they belong to (Slack keeps none). Null when the input has no tokens.
+   */
+  private async saveCredentials(
+    id: string,
+    platform: Platform,
+    input: Partial<BotInput>,
+  ): Promise<{ readonly account?: NonNullable<BotConfig["account"]> } | null> {
+    const secrets = this.options.secrets;
+    if (platform === "slack" && input.slack) {
+      await testSlackTokens(input.slack);
+      await secrets.set(botSecret(id, "botToken"), input.slack.botToken.trim());
+      await secrets.set(botSecret(id, "appToken"), input.slack.appToken.trim());
+      return {};
+    }
+    if (platform === "discord" && input.discord) {
+      const checked = await testDiscordToken(input.discord);
+      await secrets.set(botSecret(id, "botToken"), input.discord.botToken.trim());
+      return { account: { username: checked.botUser, applicationId: checked.applicationId } };
+    }
+    if (platform === "telegram" && input.telegram) {
+      const checked = await testTelegramToken(input.telegram);
+      await secrets.set(botSecret(id, "botToken"), input.telegram.botToken.trim());
+      return { account: { username: checked.botUser } };
+    }
+    return null;
+  }
+
   private async replaceBot(next: BotConfig) {
     await this.config.update((config) => ({
       ...config,
@@ -392,7 +432,7 @@ export class Engine {
       t3: this.t3,
       dataDir: this.options.dataDir,
       log: this.log,
-      platformLabel: "Slack",
+      platformLabel: PLATFORM_LABELS[bot.platform],
       claimOwner: async (userId) => {
         const latest = this.config.get().bots.find((candidate) => candidate.id === bot.id);
         if (latest === undefined || latest.allowedUserIds.length > 0) return;
@@ -423,6 +463,18 @@ export class Engine {
   private async makeAdapter(bot: BotConfig): Promise<ChatAdapter | null> {
     if (this.options.makeAdapter) return this.options.makeAdapter(bot);
     const botToken = await this.options.secrets.get(botSecret(bot.id, "botToken"));
+    if (bot.platform !== "slack") {
+      if (!botToken) {
+        this.log.warn(`[${bot.name}] has no ${PLATFORM_LABELS[bot.platform]} token; add it in T3 Bridge.`);
+        return null;
+      }
+      const buttons = new ButtonStore(
+        Path.join(this.options.dataDir, "state", `${bot.id}.buttons.json`),
+      );
+      return bot.platform === "discord"
+        ? new DiscordAdapter(botToken, this.log, bot.name, buttons)
+        : new TelegramAdapter(botToken, this.log, bot.name, buttons);
+    }
     const appToken = await this.options.secrets.get(botSecret(bot.id, "appToken"));
     if (!botToken || !appToken) {
       this.log.warn(`[${bot.name}] has no Slack tokens; add them in T3 Bridge.`);
@@ -449,7 +501,16 @@ function summarize(activity: ReadonlyArray<ActivityEntry>) {
 
 /** Bots set up with the agent manifest talk in Slack's AI-app layout, one thread per request. */
 function isAgentLayout(bot: BotConfig) {
-  return (bot.manifestVersion ?? 1) >= AGENT_LAYOUT_MANIFEST_VERSION;
+  return bot.platform === "slack" && (bot.manifestVersion ?? 1) >= AGENT_LAYOUT_MANIFEST_VERSION;
+}
+
+/** Where people find the bot: Discord's invite to a server, Telegram's t.me link. */
+function chatLink(bot: BotConfig): string | null {
+  if (bot.platform === "discord" && bot.account?.applicationId)
+    return discordInviteUrl(bot.account.applicationId);
+  if (bot.platform === "telegram" && bot.account?.username)
+    return `https://t.me/${bot.account.username}`;
+  return null;
 }
 
 function publicBot(bot: BotConfig) {

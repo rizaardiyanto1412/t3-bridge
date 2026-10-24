@@ -455,6 +455,12 @@ textarea.input {
 .platform.slack {
   background: #611f69;
 }
+.platform.discord {
+  background: #5865f2;
+}
+.platform.telegram {
+  background: #229ed9;
+}
 .banner {
   border-radius: 8px;
   padding: 10px 12px;

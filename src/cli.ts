@@ -9,7 +9,7 @@ import { FileSecretStore, readJson, writeJsonAtomic, type BridgeConfig } from ".
 import { Updater, type UpdateStatus } from "./engine/updater.ts";
 import { BRIDGE_VERSION } from "./engine/version.ts";
 
-const HELP = `T3 Bridge ${BRIDGE_VERSION}: chat with a T3 Code thread from Slack.
+const HELP = `T3 Bridge ${BRIDGE_VERSION}: chat with a T3 Code thread from Slack, Discord or Telegram.
 
 Usage: npx t3-bridge [command]
 

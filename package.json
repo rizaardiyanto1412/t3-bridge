@@ -1,7 +1,7 @@
 {
   "name": "t3-bridge",
   "version": "0.2.0",
-  "description": "Chat with a T3 Code thread from Slack. The thread acts as an orchestrator that hands work to subagents.",
+  "description": "Chat with a T3 Code thread from Slack, Discord or Telegram. The thread acts as an orchestrator that hands work to subagents.",
   "license": "MIT",
   "author": "Riza Maulana Ardiyanto",
   "repository": {
@@ -12,6 +12,8 @@
   "keywords": [
     "t3code",
     "slack",
+    "discord",
+    "telegram",
     "agents",
     "bridge"
   ],
