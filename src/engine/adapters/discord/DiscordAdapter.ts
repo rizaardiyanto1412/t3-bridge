@@ -69,6 +69,9 @@ export function discordInviteUrl(applicationId: string) {
 /** Discord error codes that will not go away by retrying. */
 const PERMANENT_CODES = new Set([10003, 10008, 50001, 50005, 50007, 50013, 50035]);
 
+/** Announcement, public and private threads (forum posts are public threads). */
+const THREAD_TYPES = new Set([10, 11, 12]);
+
 async function discordRequest<T>(
   token: string,
   method: string,
@@ -207,6 +210,8 @@ export class DiscordAdapter implements ChatAdapter {
   private identity = "";
   private readonly seen = new Set<string>();
   private readonly directChannels = new Map<string, string>();
+  /** Whether each channel seen is a thread; a channel never turns into one. */
+  private readonly threadChannels = new Map<string, boolean>();
   private readonly typing = new Map<string, NodeJS.Timeout>();
 
   private readonly token: string;
@@ -465,9 +470,40 @@ export class DiscordAdapter implements ChatAdapter {
           : null,
       ...(!forwarded && message.referenced_message
         ? { earlier: async () => [earlierMessage(message.referenced_message!)] }
-        : {}),
+        : !isDirect && message.message_reference === undefined
+          ? { earlier: () => this.missedInThread(message) }
+          : {}),
     };
     await this.handlers?.onMessage(inbound);
+  }
+
+  /**
+   * When the bot is mentioned in a thread, what was said there since it last spoke, oldest
+   * first, starting with the message the thread was opened on. Nothing outside threads.
+   */
+  private async missedInThread(message: DiscordMessage): Promise<EarlierMessage[]> {
+    let isThread = this.threadChannels.get(message.channel_id);
+    if (isThread === undefined) {
+      const channel = await this.request<{ type: number }>("GET", `/channels/${message.channel_id}`);
+      isThread = THREAD_TYPES.has(channel.type);
+      this.threadChannels.set(message.channel_id, isThread);
+    }
+    if (!isThread) return [];
+    // Newest first.
+    const recent = await this.request<DiscordMessage[]>(
+      "GET",
+      `/channels/${message.channel_id}/messages?before=${message.id}&limit=50`,
+    );
+    const missed: DiscordMessage[] = [];
+    for (const candidate of recent) {
+      if (candidate.author.id === this.botUserId) break;
+      // A thread opened on a message starts with a stand-in that carries it.
+      if (candidate.type === 21 && candidate.referenced_message) missed.push(candidate.referenced_message);
+      else if (candidate.type === 0 || candidate.type === 19) missed.push(candidate);
+    }
+    missed.reverse();
+    // The opening message and the latest replies; the middle of a long thread matters least.
+    return (missed.length > 30 ? [missed[0]!, ...missed.slice(-29)] : missed).map(earlierMessage);
   }
 
   private async onInteraction(interaction: DiscordInteraction) {
@@ -687,7 +723,7 @@ export class DiscordAdapter implements ChatAdapter {
   }
 }
 
-/** A replied-to message, with what other bots put in embeds (alerts usually do). */
+/** A message from before the bot was brought in, with what other bots put in embeds (alerts usually do). */
 function earlierMessage(message: DiscordMessage): EarlierMessage {
   const embeds = (message.embeds ?? []).flatMap((embed) => [
     embed.title && embed.url ? `${embed.title} (${embed.url})` : embed.title,

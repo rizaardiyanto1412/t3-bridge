@@ -821,8 +821,10 @@ export class BotRuntime {
   ): Promise<{ text: string; files: ReadonlyArray<InboundFile>; opening: string | null }> {
     const none = { text: "", files: [], opening: null };
     const replyTo = message.replyTo;
-    if (replyTo === null || message.earlier === undefined || this.isReplyToBot(replyTo)) return none;
-    const key = `${message.conversation.id}:${replyTo.ts}`;
+    if (message.earlier === undefined || this.isReplyToBot(replyTo)) return none;
+    // Without a reply (a mention in a Discord thread) the adapter only returns what the bot
+    // missed since it last spoke there, so there is nothing to send twice.
+    const key = `${message.conversation.id}:${replyTo?.ts ?? message.ref.ts}`;
     if (this.state.contextSent?.includes(key)) return none;
     let messages: ReadonlyArray<EarlierMessage>;
     try {

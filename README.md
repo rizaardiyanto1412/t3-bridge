@@ -40,19 +40,25 @@ chat, and bookmark each link. On a single Mac without Tailscale, open the `127.0
 | `npx t3-bridge link` | Print the control panel link again |
 | `npx t3-bridge status` | Show whether T3 Code and the bots are connected |
 
-The panel lists your bots in a sidebar. Each bot's **Conversation** tab shows every request from
-chat, what the agent is doing about it, its subagents, and anything that went wrong.
+![The T3 Bridge control panel](docs/panel.png)
+
+The panel opens on your bots: one card per bot with its state (working, idle, waiting for you,
+or what's wrong), its thread and today's requests, plus today's totals and requests by hour.
+Turn a bot on or off from its card, stop a running request, or start a fresh thread. Open a bot
+for its settings: name, thread, who may use it, instructions, and its Slack, Discord or
+Telegram tokens.
 
 To update, open **Settings** in the panel and choose **Update**, or run
 `npx t3-bridge@latest install`. Settings live in `~/Library/Application Support/T3 Bridge` and
 logs in `~/Library/Logs/T3 Bridge.log`.
 
 **Replace link** under **Settings → Open from other devices** issues a new link; every old copy
-stops working. The QR code next to it opens the panel on your phone.
+stops working. The QR code next to it, also behind the QR button on the home page, opens the
+panel on your phone.
 
 ## Add a Slack bot
 
-In the control panel, choose **+ Add**, pick **Slack**, and follow the four steps:
+In the control panel, choose **Slack** on the **Add a bot** card (or **Add bot → Slack**), and follow the four steps:
 
 1. Name the bot and choose **Create Slack app**. Slack opens with the app filled in; choose
    **Create**, then **Install to Workspace**.
@@ -62,7 +68,7 @@ In the control panel, choose **+ Add**, pick **Slack**, and follow the four step
 3. Choose a thread, or create a new orchestrator thread. A new thread is pinned, runs with full
    access, and starts with the orchestrator instructions.
 4. Send the bot a direct message in Slack. The first person to do so becomes its owner; add
-   others under the bot's **Settings → Who may use it**.
+   others on the bot's page under **Who may use it**.
 
 Message the bot directly, or invite it to a channel with `/invite @bot`. Both go to the same thread. In
 a channel, mention the bot (`@bot fix the login page`) or reply under one of its messages; other
@@ -70,7 +76,7 @@ channel chatter is ignored.
 
 ## Add a Discord bot
 
-In the control panel, choose **+ Add**, pick **Discord**, and follow the four steps:
+In the control panel, choose **Discord** on the **Add a bot** card (or **Add bot → Discord**), and follow the four steps:
 
 1. Name the bot and open the Discord developer portal. Choose **New Application**, then under
    **Bot** choose **Reset Token** and copy the token. Optionally turn on **Message Content
@@ -79,14 +85,14 @@ In the control panel, choose **+ Add**, pick **Discord**, and follow the four st
    lets people message a bot they share a server with.
 3. Choose a thread, or create a new orchestrator thread.
 4. Send the bot a direct message (its profile → **Message**). The first person to do so becomes
-   its owner; add others by Discord user ID under the bot's **Settings → Who may use it**
+   its owner; add others by Discord user ID on the bot's page under **Who may use it**
    (turn on Developer Mode, then right-click a person → **Copy User ID**).
 
 In a server channel, mention the bot (`@bot fix the login page`) or reply to one of its messages.
 
 ## Add a Telegram bot
 
-In the control panel, choose **+ Add**, pick **Telegram**, and follow the four steps:
+In the control panel, choose **Telegram** on the **Add a bot** card (or **Add bot → Telegram**), and follow the four steps:
 
 1. Name the bot and open [@BotFather](https://t.me/BotFather). Send `/newbot`, a display name,
    and a username ending in `bot`. BotFather replies with a token like `123456:ABC…`.
@@ -100,7 +106,7 @@ In a group, mention the bot (`@your_bot fix the login page`), reply to one of it
 
 ## Updating an existing bot's Slack app
 
-When a new version needs more Slack permissions, the bot's **Slack app** tab says so. It gives
+When a new version needs more Slack permissions, the **Slack app** card on the bot's page says so. It gives
 you a new manifest to paste under **App Manifest** on api.slack.com, then asks you to reinstall
 the app. The tokens stay the same.
 
@@ -128,7 +134,8 @@ continue that request; start a new message for a new one.
 - Mention the bot in the replies under any message, such as another app's alert, and the agent
   gets what came before: the message the thread started with and the replies so far, quoted with
   their files. The thread is named after that opening message. In Discord and Telegram the same
-  goes for a reply to someone else's message.
+  goes for a reply to someone else's message, and a mention in a Discord thread brings what was
+  said there since the bot last spoke.
 - Images go both ways: pictures you attach in Slack reach the agent, and screenshots or images
   the agent shows (including ones it saved on the Mac) are uploaded to the thread.
 - HTML pages the agent renders arrive as an `.html` file.

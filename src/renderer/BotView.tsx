@@ -253,7 +253,7 @@ function BotSettings(props: {
               <input
                 className="input mono sm"
                 autoFocus
-                placeholder={bot.platform === "slack" ? "U04QF2K8L" : "User ID"}
+                placeholder={bot.platform === "slack" ? "U012AB3CD" : "User ID"}
                 value={adding}
                 onChange={(event) => setAdding(event.target.value)}
                 onKeyDown={(event) => {
