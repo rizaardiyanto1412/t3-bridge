@@ -2,7 +2,8 @@
 
 A 56-second launch video for T3 Bridge, built from `index.html` (one animated scene per
 entry in `timeline.mjs`), captured frame by frame with Playwright and encoded with ffmpeg.
-The music bed is synthesized by `music.py`.
+The music bed is synthesized by `music.py`. `panel.png` is the real control panel (`pnpm build` at
+the repo root, then `node panel-shot.mjs`) with mocked SandyWP and Repile bots.
 
 ```sh
 npm install

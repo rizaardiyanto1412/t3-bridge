@@ -4,12 +4,12 @@ export const scenes = [
   {
     id: "hook",
     seconds: 5,
-    voice: "T3 Code is a brilliant orchestrator. But you only get to use it while you're sitting in front of it.",
+    voice: "T3 Code has a brilliant orchestrator. We take it further.",
   },
   {
     id: "coworker",
     seconds: 5,
-    voice: "I wanted to message it like a coworker. From my phone. From anywhere.",
+    voice: "What if you could message it like a coworker, in the chat apps your team already lives in?",
   },
   {
     id: "title",

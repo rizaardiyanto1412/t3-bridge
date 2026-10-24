@@ -41,7 +41,7 @@ body { font-family: "Bricolage", "Inter", sans-serif; color: var(--ink); -webkit
 #hook .wrap { position: absolute; left: 160px; top: 380px; width: 1600px; }
 #hook h1 { font-size: 118px; font-weight: 700; letter-spacing: -.035em; line-height: 1.02; }
 #hook h1 span { display: inline-block; }
-#hook h2 { margin-top: 44px; font-size: 64px; font-weight: 500; letter-spacing: -.02em; color: #8a909b; }
+#hook h2 { margin-top: 44px; font-size: 72px; font-weight: 600; letter-spacing: -.025em; color: #e7e9ee; }
 
 /* 2 coworker */
 #coworker h1 { position: absolute; left: 140px; top: 330px; width: 980px; font-size: 104px; font-weight: 700; letter-spacing: -.035em; line-height: 1.04; }
@@ -165,18 +165,18 @@ body { font-family: "Bricolage", "Inter", sans-serif; color: var(--ink); -webkit
 <!-- 1 · hook -->
 <section class="scene dark grid" id="hook">
   <div class="wrap">
-    <h1 id="h-l1"><span>T3</span> <span>Code</span> <span>is</span> <span>a</span> <span>brilliant</span> <span class="hl">orchestrator.</span></h1>
-    <h2 id="h-l2">But you only get it while you're sitting in front of it.</h2>
+    <h1 id="h-l1"><span>T3</span> <span>Code</span> <span>has</span> <span>a</span> <span>brilliant</span> <span class="hl">orchestrator.</span></h1>
+    <h2 id="h-l2">We take it further.</h2>
   </div>
 </section>
 
 <!-- 2 · coworker -->
 <section class="scene light" id="coworker">
   <h1 id="c-h">Message it like a <span class="hl">coworker</span>.</h1>
-  <div class="sub" id="c-sub">From your phone. From anywhere.</div>
+  <div class="sub" id="c-sub">In Slack, Discord or Telegram.</div>
   <div class="phone" id="c-phone">
     <div class="screen">
-      <div class="bar"><div class="logo">t3</div><div><b>WP Keeper</b><small>● working</small></div></div>
+      <div class="bar"><div class="logo">t3</div><div><b>SandyWP</b><small>● working</small></div></div>
       <div class="bub me" id="c-b1" style="top:160px">the signup page 404s after login. can you take a look?</div>
       <div class="typing" id="c-typing" style="top:310px"><i></i><i></i><i></i></div>
       <div class="bub bot" id="c-b2" style="top:310px">On it. Sending a subagent <span class="emoji">👀</span></div>
@@ -207,7 +207,7 @@ body { font-family: "Bricolage", "Inter", sans-serif; color: var(--ink); -webkit
 <section class="scene light" id="rule">
   <div class="kicker mono" id="r-k">The rule</div>
   <div class="row">
-    <div class="rcard" id="r-c1"><div class="n">1</div><div class="w">project</div><div class="d mono">~/Code/wpkeeper</div></div>
+    <div class="rcard" id="r-c1"><div class="n">1</div><div class="w">project</div><div class="d mono">~/Code/sandywp</div></div>
     <div class="eq" id="r-e1">=</div>
     <div class="rcard" id="r-c2"><div class="n">1</div><div class="w">thread</div><div class="d mono">orchestrator · pinned</div></div>
     <div class="eq" id="r-e2">=</div>
@@ -226,19 +226,19 @@ body { font-family: "Bricolage", "Inter", sans-serif; color: var(--ink); -webkit
     <div class="step" id="st4"><span class="dot"></span><span class="mono">04</span>It reports back</div>
   </div>
   <div class="win" id="ch-win">
-    <div class="top"><span class="icon slack" data-icon="slack"></span><b>WP Keeper</b><span class="mono">1 project · 1 thread</span></div>
+    <div class="top"><span class="icon discord" data-icon="discord"></span><b>Repile</b><span class="mono">1 project · 1 thread</span></div>
     <div class="msgs">
       <div class="msg" id="m1"><div class="av me">R</div><div><div class="who">Riza<small>10:42</small></div>
-        <div class="txt"><span class="mention">@wpkeeper</span> signup redirects to a 404 after login. Can you fix it?</div>
+        <div class="txt"><span class="mention">@repile</span> signup redirects to a 404 after login. Can you fix it?</div>
         <div class="react" id="m1r"><span class="emoji" id="m1e">👀</span><span class="mono">1</span></div></div></div>
-      <div class="msg" id="m2"><div class="av logo">t3</div><div><div class="who">WP Keeper<small>10:42</small></div>
+      <div class="msg" id="m2"><div class="av logo">t3</div><div><div class="who">Repile<small>10:42</small></div>
         <div class="txt">On it. Handing this to two subagents.</div></div></div>
       <div class="task" id="tA"><div class="spin" id="tAs"></div><div class="check" id="tAc">✓</div><div class="label"><b>Subagent</b> <span>· Find where signup redirects</span></div><span class="mono" id="tAt">running</span></div>
       <div class="task" id="tB"><div class="spin" id="tBs"></div><div class="check" id="tBc">✓</div><div class="label"><b>Subagent</b> <span>· Patch the route, update tests</span></div><span class="mono" id="tBt">running</span></div>
       <div class="approve" id="ap"><div class="q">Allow the subagent to run <code>pnpm test</code>?</div>
         <div class="btns" id="apb"><div class="btn go" id="apgo">Approve</div><div class="btn">Deny</div></div>
         <div class="done" id="apd">✓ Approved by Riza</div></div>
-      <div class="msg" id="m3"><div class="av logo">t3</div><div><div class="who">WP Keeper<small>10:47</small></div>
+      <div class="msg" id="m3"><div class="av logo">t3</div><div><div class="who">Repile<small>10:47</small></div>
         <div class="txt">Fixed. Signup now lands on <b>/onboarding</b> instead of the old route. 42 tests pass and the PR is up.</div></div></div>
     </div>
   </div>
@@ -260,7 +260,7 @@ body { font-family: "Bricolage", "Inter", sans-serif; color: var(--ink); -webkit
   <div class="head" id="p-head"><h1>One control panel.</h1><p>Add bots, pick threads, stop work. Your phone included.</p></div>
   <div class="browser" id="p-br">
     <div class="chrome"><i></i><i></i><i></i><span class="url mono">100.64.0.7:47821</span></div>
-    <div class="vp"><img id="p-img" src="../docs/panel.png"></div>
+    <div class="vp"><img id="p-img" src="panel.png"></div>
   </div>
 </section>
 
