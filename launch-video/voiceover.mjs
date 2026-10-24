@@ -9,11 +9,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { scenes } from "./timeline.mjs";
 
+// Without ELEVENLABS_API_KEY the requests go out bare, for environments whose
+// network proxy adds the key itself.
 const key = process.env.ELEVENLABS_API_KEY;
-if (!key) {
-  console.error("Set ELEVENLABS_API_KEY first.");
-  process.exit(1);
-}
 const voice = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
 const model = process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2";
 const audio = join(dirname(fileURLToPath(import.meta.url)), "audio");
@@ -23,7 +21,7 @@ const durations = {};
 for (const [i, scene] of scenes.entries()) {
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_128`, {
     method: "POST",
-    headers: { "xi-api-key": key, "content-type": "application/json", accept: "audio/mpeg" },
+    headers: { ...(key ? { "xi-api-key": key } : {}), "content-type": "application/json", accept: "audio/mpeg" },
     body: JSON.stringify({
       text: scene.voice,
       model_id: model,
@@ -35,6 +33,7 @@ for (const [i, scene] of scenes.entries()) {
   });
   if (!res.ok) {
     console.error(`ElevenLabs ${res.status} for "${scene.id}": ${await res.text()}`);
+    if (res.status === 401 && !key) console.error("No key reached ElevenLabs: set ELEVENLABS_API_KEY.");
     process.exit(1);
   }
   const file = join(audio, `vo-${scene.id}.mp3`);
