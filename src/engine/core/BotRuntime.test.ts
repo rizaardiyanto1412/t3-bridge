@@ -117,6 +117,16 @@ describe("BotRuntime brought into a conversation", () => {
     await runtime.stop();
   });
 
+  it("sends what a mention without a reply missed, each time", async () => {
+    const { runtime, dispatched } = await setup();
+    const missed = (text: string) => async () => [{ author: "Dana", text, files: [] }];
+    await runtime.handleMessage({ ...mention("Thoughts?", "101.000", missed("first")), replyTo: null });
+    await runtime.handleMessage({ ...mention("And now?", "102.000", missed("second")), replyTo: null });
+    expect(dispatched[0]!.text).toContain("Dana:\n> first");
+    expect(dispatched[1]!.text).toContain("Dana:\n> second");
+    await runtime.stop();
+  });
+
   it("still sends the request when the earlier messages cannot be read", async () => {
     const { runtime, dispatched } = await setup();
     await runtime.handleMessage(

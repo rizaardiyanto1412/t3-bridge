@@ -128,6 +128,43 @@ describe("DiscordAdapter inbound", () => {
     ]);
   });
 
+  it("offers what was said in a thread since the bot last spoke, from the message it was opened on", async () => {
+    const { inbound, internals, dispatch } = setup();
+    const alert = { ...base, id: "t1", author: { id: "5", username: "wpkeeper", bot: true }, content: "Backup failed" };
+    Object.assign(internals, {
+      request: async (_method: string, path: string) => {
+        if (path === "/channels/t1") return { type: 11 };
+        if (path === "/channels/c1") return { type: 0 };
+        if (path.startsWith("/channels/t1/messages?before=m9"))
+          return [
+            { ...base, id: "m8", channel_id: "t1", content: "still failing" },
+            { ...base, id: "m7", channel_id: "t1", type: 7, content: "" },
+            { ...base, id: "m6", channel_id: "t1", author: { id: "999", username: "bot" }, content: "Old answer" },
+            { ...base, id: "m5", channel_id: "t1", content: "seen already" },
+          ];
+        if (path.startsWith("/channels/t1/messages?before=m4"))
+          return [{ ...base, id: "s", channel_id: "t1", type: 21, content: "", referenced_message: alert }];
+        return [];
+      },
+    });
+    const mentionIn = (channel: string, id: string) =>
+      dispatch("MESSAGE_CREATE", {
+        ...base,
+        id,
+        channel_id: channel,
+        guild_id: "g",
+        content: "<@999> is this on our end?",
+        mentions: [{ id: "999", username: "bot" }],
+      });
+    await mentionIn("t1", "m9");
+    await mentionIn("t1", "m4");
+    await mentionIn("c1", "m3");
+    expect(inbound[0]!.replyTo).toBeNull();
+    expect(await inbound[0]!.earlier!()).toEqual([{ author: "Riza", text: "still failing", files: [] }]);
+    expect(await inbound[1]!.earlier!()).toEqual([{ author: "wpkeeper", text: "Backup failed", files: [] }]);
+    expect(await inbound[2]!.earlier!()).toEqual([]);
+  });
+
   it("stops the agent on a 🛑 reaction", async () => {
     const { actions, dispatch } = setup();
     await dispatch("MESSAGE_REACTION_ADD", { user_id: "7", emoji: { name: "🛑" } });

@@ -40,8 +40,9 @@ export interface InboundMessage {
   readonly replyTo: MessageRef | null;
   /**
    * Loads what came before this message in the conversation it replies to: the message it
-   * answers, or the start of the chat thread it was posted in. The core calls it only when the
-   * bot is brought into a conversation it was not part of, e.g. mentioned under an alert.
+   * answers, or the start of the chat thread it was posted in. Without a reply (a mention in a
+   * Discord thread), what was said there since the bot last spoke. The core calls it only when
+   * the bot is brought into a conversation it was not part of, e.g. mentioned under an alert.
    */
   readonly earlier?: () => Promise<ReadonlyArray<EarlierMessage>>;
 }
