@@ -13,6 +13,7 @@ import {
   type AdapterHandlers,
   type ChatAdapter,
   type ConversationRef,
+  type EarlierMessage,
   type ImageRef,
   type InboundFile,
   type InboundMessage,
@@ -75,7 +76,8 @@ export interface TelegramMessage {
   entities?: TelegramEntity[];
   caption_entities?: TelegramEntity[];
   media_group_id?: string;
-  reply_to_message?: { message_id: number; from?: TelegramUser };
+  /** The whole replied-to message, as Telegram sends it with a reply. */
+  reply_to_message?: TelegramMessage;
   forward_origin?: {
     type: "user" | "hidden_user" | "chat" | "channel";
     sender_user?: TelegramUser;
@@ -337,7 +339,26 @@ export class TelegramAdapter implements ChatAdapter {
           : [`Forwarded message from ${forwardedFrom}:`, ...(text || "(no text)").split("\n").map((line) => `> ${line}`)].join("\n"),
       files,
       replyTo: isReply ? { channel: chatId, ts: String(reply.message_id) } : null,
+      ...(isReply ? { earlier: async () => [this.earlierMessage(reply)] } : {}),
     });
+  }
+
+  private earlierMessage(message: TelegramMessage): EarlierMessage {
+    const from = message.from;
+    return {
+      author: from
+        ? [from.first_name, from.last_name].filter(Boolean).join(" ") || from.username || "someone"
+        : (message.chat.title ?? "someone"),
+      text: message.text ?? message.caption ?? "",
+      files: messageFiles(message)
+        .filter((file) => (file.file_size ?? 0) <= MAX_DOWNLOAD_BYTES)
+        .map((file) => ({
+          name: file.name,
+          mimeType: file.mimeType,
+          sizeBytes: file.file_size ?? 0,
+          download: () => this.download(file.file_id),
+        })),
+    };
   }
 
   /** The text of a message without the bot's @name; commands lose their @bot suffix. */

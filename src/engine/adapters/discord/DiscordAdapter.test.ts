@@ -106,6 +106,28 @@ describe("DiscordAdapter inbound", () => {
     expect(inbound[0]!.files[0]).toMatchObject({ name: "log.txt", mimeType: "text/plain" });
   });
 
+  it("offers the replied-to message, embeds included, as earlier context", async () => {
+    const { inbound, dispatch } = setup();
+    await dispatch("MESSAGE_CREATE", {
+      ...base,
+      guild_id: "g",
+      type: 19,
+      content: "<@999> is this on our end?",
+      mentions: [{ id: "999", username: "bot" }],
+      message_reference: { type: 0, message_id: "m0", channel_id: "c1" },
+      referenced_message: {
+        ...base,
+        id: "m0",
+        author: { id: "5", username: "wpkeeper", bot: true },
+        content: "",
+        embeds: [{ title: "Backup failed", url: "https://salemreporter.com", description: "Stopped 4 times" }],
+      },
+    });
+    expect(await inbound[0]!.earlier!()).toEqual([
+      { author: "wpkeeper", text: "Backup failed (https://salemreporter.com)\nStopped 4 times", files: [] },
+    ]);
+  });
+
   it("stops the agent on a 🛑 reaction", async () => {
     const { actions, dispatch } = setup();
     await dispatch("MESSAGE_REACTION_ADD", { user_id: "7", emoji: { name: "🛑" } });

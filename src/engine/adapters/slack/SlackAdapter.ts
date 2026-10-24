@@ -6,6 +6,7 @@ import type {
   AdapterHandlers,
   ChatAdapter,
   ConversationRef,
+  EarlierMessage,
   ImageRef,
   InboundFile,
   InboundMessage,
@@ -288,6 +289,9 @@ export class SlackAdapter implements ChatAdapter {
         event.thread_ts && event.thread_ts !== event.ts
           ? { channel: event.channel, ts: event.thread_ts }
           : null,
+      ...(event.thread_ts && event.thread_ts !== event.ts
+        ? { earlier: () => this.threadBefore(event.channel, event.thread_ts!, event.ts) }
+        : {}),
     };
     await this.handlers?.onMessage(message);
   }
@@ -451,6 +455,27 @@ export class SlackAdapter implements ChatAdapter {
       files: await this.inboundFiles(pending.files ?? []),
       replyTo: null,
     });
+  }
+
+  /** The messages of a thread before `before`, oldest first: what the bot missed when mentioned in it. */
+  private async threadBefore(channel: string, threadTs: string, before: string): Promise<EarlierMessage[]> {
+    const result = await this.web.conversations.replies({ channel, ts: threadTs, limit: 100 });
+    const messages = ((result.messages ?? []) as SlackThreadMessage[]).filter(
+      (candidate) => Number(candidate.ts) < Number(before),
+    );
+    // The opening message and the latest replies; the middle of a long thread matters least.
+    const chosen = messages.length > 30 ? [messages[0]!, ...messages.slice(-29)] : messages;
+    const earlier: EarlierMessage[] = [];
+    for (const candidate of chosen) {
+      earlier.push({
+        author: candidate.user
+          ? await this.userName(candidate.user)
+          : (candidate.bot_profile?.name ?? candidate.username ?? "a bot"),
+        text: slackMessageText(candidate),
+        files: await this.inboundFiles(candidate.files ?? []),
+      });
+    }
+    return earlier;
   }
 
   /** Forwarded messages, quoted for the agent with who wrote them and where. */
@@ -1048,6 +1073,64 @@ function sharedFiles(shared: SlackSharedMessage): SlackFile[] {
     ...(shared.files ?? []),
     ...(shared.message_blocks ?? []).flatMap((block) => block.message?.files ?? []),
   ];
+}
+
+interface SlackThreadMessage {
+  ts: string;
+  user?: string;
+  username?: string;
+  bot_profile?: { name?: string };
+  text?: string;
+  files?: SlackFile[];
+  attachments?: Array<{
+    pretext?: string;
+    title?: string;
+    title_link?: string;
+    text?: string;
+    fallback?: string;
+    fields?: Array<{ title?: string; value?: string }>;
+  }>;
+  blocks?: Array<{ type?: string; text?: { text?: string }; elements?: unknown[] }>;
+}
+
+/**
+ * Everything a message says. Alerts from other apps often keep their text in attachments
+ * (the colored bar) or blocks rather than in `text`.
+ */
+export function slackMessageText(message: SlackThreadMessage): string {
+  const parts: string[] = [];
+  const text = message.text?.trim() ?? "";
+  const attachments = (message.attachments ?? []).flatMap((attachment) => [
+    attachment.pretext,
+    attachment.title && attachment.title_link
+      ? `${attachment.title} (${attachment.title_link})`
+      : attachment.title,
+    attachment.text ?? (attachment.title ? undefined : attachment.fallback),
+    ...(attachment.fields ?? []).map((field) =>
+      field.title ? `${field.title}: ${field.value ?? ""}` : field.value,
+    ),
+  ]);
+  if (text) parts.push(text);
+  parts.push(...attachments.filter((part): part is string => Boolean(part?.trim())));
+  // Blocks usually repeat `text`; they are only read when nothing else says anything.
+  if (parts.length === 0) {
+    for (const block of message.blocks ?? []) {
+      if (block.text?.text) parts.push(block.text.text);
+      else if (block.type === "rich_text") parts.push(richTextOf(block.elements ?? []));
+    }
+  }
+  return decodeSlackText(parts.filter(Boolean).join("\n"));
+}
+
+function richTextOf(elements: unknown[]): string {
+  return elements
+    .map((element) => {
+      const node = element as { text?: string; url?: string; elements?: unknown[]; type?: string };
+      if (node.elements) return richTextOf(node.elements) + (node.type === "rich_text_section" ? "\n" : "");
+      return node.text ?? node.url ?? "";
+    })
+    .join("")
+    .trim();
 }
 
 /** Where a new post goes: the conversation, inside its thread when it has one. */

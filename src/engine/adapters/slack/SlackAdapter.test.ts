@@ -76,6 +76,25 @@ function setup(
       conversations: {
         open: async () => ({ channel: { id: "D9" } }),
         info: async () => ({ channel: { user: "U1" } }),
+        replies: async () => ({
+          messages: [
+            {
+              ts: "100.000",
+              bot_profile: { name: "WPKeeper" },
+              text: "",
+              attachments: [
+                {
+                  title: "salemreporter.com: backup failed",
+                  title_link: "https://salemreporter.com",
+                  text: "The panel stopped 4 times during this backup.",
+                  fallback: "backup failed",
+                },
+              ],
+            },
+            { ts: "100.500", user: "U2", text: "Seen this before?" },
+            { ts: "101.000", user: "U1", text: "<@UBOT> Is this on our end?" },
+          ],
+        }),
       },
       views: { open: record("views.open") },
     },
@@ -478,5 +497,35 @@ describe("SlackAdapter forwarded messages", () => {
     expect(message.text).toContain("> Incremental backups are no longer working & it runs full ones");
     expect(message.files).toHaveLength(1);
     expect(message.files[0]).toMatchObject({ name: "Screenshot.png", mimeType: "image/png" });
+  });
+});
+
+describe("SlackAdapter thread context", () => {
+  it("offers the thread before a mention, alerts in attachments included", async () => {
+    const { inbound, onMessage } = setup();
+    await onMessage({
+      type: "message",
+      channel: "C1",
+      channel_type: "channel",
+      user: "U1",
+      text: "<@UBOT> Is this on our end?",
+      ts: "101.000",
+      thread_ts: "100.000",
+    });
+    expect(inbound[0]!.replyTo).toEqual({ channel: "C1", ts: "100.000" });
+    const earlier = await inbound[0]!.earlier!();
+    expect(earlier.map((message) => [message.author, message.text])).toEqual([
+      [
+        "WPKeeper",
+        "salemreporter.com: backup failed (https://salemreporter.com)\nThe panel stopped 4 times during this backup.",
+      ],
+      ["Riza", "Seen this before?"],
+    ]);
+  });
+
+  it("offers nothing for a message that is not in a thread", async () => {
+    const { inbound, onMessage } = setup();
+    await onMessage({ type: "message", channel: "C1", channel_type: "channel", user: "U1", text: "hi", ts: "5.000" });
+    expect(inbound[0]!.earlier).toBeUndefined();
   });
 });
