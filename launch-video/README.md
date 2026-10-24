@@ -16,9 +16,9 @@ node render.mjs --still 12 30       # single frames -> out/still-12.png, out/sti
 The voiceover lines live in `timeline.mjs`. With an ElevenLabs key:
 
 ```sh
-ELEVENLABS_API_KEY=... node voiceover.mjs   # one clip per scene -> audio/
-node render.mjs                             # scenes stretch to fit, music ducks under the voice
+ELEVENLABS_API_KEY=... npm run voiceover   # one clip per scene -> audio/, then re-renders
 ```
 
-`ELEVENLABS_VOICE_ID` picks another voice. Requires Node 22, ffmpeg, Python 3 with numpy,
+Scenes stretch to fit the narration and the music ducks under it. `ELEVENLABS_VOICE_ID`
+picks another voice. Requires Node 22, ffmpeg, Python 3 with numpy,
 and Playwright's Chromium.

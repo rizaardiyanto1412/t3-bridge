@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "render": "node render.mjs",
-    "voiceover": "node voiceover.mjs && node render.mjs"
+    "voiceover": "NODE_USE_ENV_PROXY=1 node voiceover.mjs && node render.mjs"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
