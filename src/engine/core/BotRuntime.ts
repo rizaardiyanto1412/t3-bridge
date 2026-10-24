@@ -968,7 +968,8 @@ export class BotRuntime {
     }
   }
 
-  private async stopThread() {
+  /** Stops the agent's current turn, as a stop reaction in chat would. */
+  async stopThread() {
     if (this.bot.threadId === null) return;
     await this.options.t3.dispatch({
       type: "thread.stop",

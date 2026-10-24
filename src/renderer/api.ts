@@ -81,6 +81,7 @@ export function makeApi(target: Target) {
       call<Bot>("PATCH", `/api/bots/${id}`, patch),
     removeBot: (id: string) => call<unknown>("DELETE", `/api/bots/${id}`),
     activity: (id: string) => call<{ entries: ActivityEntry[] }>("GET", `/api/bots/${id}/activity`),
+    stop: (id: string) => call<{ stopped: boolean }>("POST", `/api/bots/${id}/stop`),
     newThread: (id: string) =>
       call<{ threadId: string; title: string }>("POST", `/api/bots/${id}/new-thread`),
     updateInfo: () =>

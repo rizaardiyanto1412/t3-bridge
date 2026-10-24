@@ -1,69 +1,270 @@
-import { useEffect, useState } from "react";
+import { ArrowLeft, ChevronsUpDown, Gamepad2, Send, X, type LucideIcon } from "lucide-react";
+import QRCode from "qrcode";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   PLATFORM_NAMES,
+  type ActivityEntry,
   type Api,
   type BotStatus,
-  type ModelSelection,
   type Platform,
   type Project,
+  type Status,
   type ThreadSummary,
 } from "./api.ts";
 
 export type Threads = { projects: Project[]; threads: ThreadSummary[] };
 
-export type Route = { page: "bot"; id: string } | { page: "add" } | { page: "settings" } | { page: "home" };
+export type Route =
+  | { page: "bot"; id: string }
+  | { page: "add"; platform: Platform }
+  | { page: "settings" }
+  | { page: "home" };
 
 export function go(route: Route) {
-  location.hash = route.page === "bot" ? `/bot/${route.id}` : route.page === "home" ? "" : `/${route.page}`;
+  location.hash =
+    route.page === "bot"
+      ? `/bot/${route.id}`
+      : route.page === "add"
+        ? `/add/${route.platform}`
+        : route.page === "home"
+          ? ""
+          : `/${route.page}`;
 }
 
 export function errorText(cause: unknown) {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-export function ago(iso: string | null) {
-  if (iso === null) return "";
-  const seconds = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-  if (seconds < 60) return "now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
+export const PLATFORMS: ReadonlyArray<Platform> = ["slack", "discord", "telegram"];
+
+// ── bot state ─────────────────────────────────────────────────────────────
+
+export type Tone = "idle" | "working" | "waiting" | "problem" | "off";
+
+/** The one line that says what a bot is up to, shown in the same pill everywhere. */
+export function botState(bot: BotStatus, t3: Status["t3"]): { label: string; tone: Tone; detail?: string } {
+  if (!bot.enabled) return { label: "Turned off", tone: "off" };
+  if (bot.connection.state === "connecting") return { label: "Connecting…", tone: "off" };
+  if (bot.connection.state !== "connected")
+    return { label: "Not connected", tone: "problem", ...(bot.connection.error ? { detail: bot.connection.error } : {}) };
+  if (t3.state !== "connected") return { label: "T3 Code not connected", tone: "problem" };
+  if (bot.threadId === null) return { label: "No thread picked", tone: "problem" };
+  const working = bot.activity.working;
+  if (working?.waiting) return { label: "Waiting for you", tone: "waiting" };
+  if (working !== null) return { label: "Working", tone: "working" };
+  if (bot.manifestOutdated) return { label: "Slack app needs an update", tone: "problem" };
+  return { label: "Idle", tone: "idle" };
 }
 
-export type Health = "ok" | "pending" | "bad" | "off";
-
-export function botHealth(bot: BotStatus): Health {
-  if (!bot.enabled) return "off";
-  if (bot.connection.state === "connected") return "ok";
-  if (bot.connection.state === "connecting") return "pending";
-  return "bad";
+/** The account the bot runs as, e.g. "@wpkeeper · paywallproject". */
+export function botHandle(bot: BotStatus) {
+  const identity = bot.connection.identity;
+  if (bot.platform === "slack" && identity?.includes(" @ ")) {
+    const [user, team] = identity.split(" @ ");
+    return `@${user} · ${team}`;
+  }
+  if (bot.account?.username) return `@${bot.account.username}`;
+  return identity?.replace(/ on (Discord|Telegram)$/, "") ?? "";
 }
 
-export const HEALTH_LABEL: Record<Health, string> = {
-  ok: "Connected",
-  pending: "Connecting…",
-  bad: "Not connected",
-  off: "Turned off",
-};
+/** Where the "Open in …" buttons go. Slack has no link to one app, so it opens Slack itself. */
+export function openLink(bot: BotStatus) {
+  if (bot.platform === "telegram") return bot.chatLink ?? "https://web.telegram.org";
+  if (bot.platform === "discord") return "https://discord.com/channels/@me";
+  return "slack://open";
+}
 
-export function PlatformIcon({ platform, large = false }: { platform: Platform; large?: boolean }) {
+export function threadMeta(thread: ThreadSummary | undefined) {
+  return thread ? `${thread.projectTitle} · ${thread.model}` : "";
+}
+
+/** Each bot's recent requests, for counts the status summary doesn't carry. */
+export function useActivities(api: Api, botIds: ReadonlyArray<string>) {
+  const [entries, setEntries] = useState<Record<string, ActivityEntry[]>>({});
+  const key = botIds.join(",");
+  useEffect(() => {
+    const ids = key ? key.split(",") : [];
+    const load = () =>
+      void Promise.all(ids.map((id) => api.activity(id).then((result) => [id, result.entries] as const)))
+        .then((pairs) => setEntries(Object.fromEntries(pairs)))
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, [api, key]);
+  return entries;
+}
+
+export function startOfToday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
+
+// ── pieces ────────────────────────────────────────────────────────────────
+
+/** Slack's mark in lucide's style; lucide dropped brand icons. */
+export function SlackIcon({ size = 16, strokeWidth = 2 }: { size?: number; strokeWidth?: number }) {
   return (
-    <span className={`platform ${platform}${large ? " lg" : ""}`} title={PLATFORM_NAMES[platform]}>
-      {PLATFORM_NAMES[platform].slice(0, 1)}
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect width="3" height="8" x="13" y="2" rx="1.5" />
+      <path d="M19 8.5V10h1.5A1.5 1.5 0 1 0 19 8.5" />
+      <rect width="3" height="8" x="8" y="14" rx="1.5" />
+      <path d="M5 15.5V14H3.5A1.5 1.5 0 1 0 5 15.5" />
+      <rect width="8" height="3" x="14" y="13" rx="1.5" />
+      <path d="M15.5 19H14v1.5a1.5 1.5 0 1 0 1.5-1.5" />
+      <rect width="8" height="3" x="2" y="8" rx="1.5" />
+      <path d="M8.5 5H10V3.5A1.5 1.5 0 1 0 8.5 5" />
+    </svg>
+  );
+}
+
+const PLATFORM_ICONS: Record<Exclude<Platform, "slack">, LucideIcon> = { discord: Gamepad2, telegram: Send };
+
+export function PlatformGlyph({ platform, size = 16 }: { platform: Platform; size?: number }) {
+  if (platform === "slack") return <SlackIcon size={size} />;
+  const Icon = PLATFORM_ICONS[platform];
+  return <Icon size={size} aria-hidden />;
+}
+
+/** The platform's icon on its brand color. */
+export function PlatformBadge({ platform, size = 24, round = false }: { platform: Platform; size?: number; round?: boolean }) {
+  return (
+    <span
+      className={`platform-badge ${platform}${round ? " round" : ""}`}
+      style={{ width: size, height: size }}
+      title={PLATFORM_NAMES[platform]}
+    >
+      <PlatformGlyph platform={platform} size={Math.round(size * 0.52)} />
     </span>
   );
 }
 
-export function BridgeMark() {
+export function StatePill({ label, tone, detail }: { label: string; tone: Tone; detail?: string | undefined }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 36 36" aria-hidden>
-      <g fill="none" stroke="currentColor" strokeWidth="3.4">
-        <circle cx="9" cy="18" r="6" />
-        <circle cx="27" cy="18" r="6" />
-        <line x1="15" y1="18" x2="21" y2="18" />
-      </g>
-    </svg>
+    <span className={`pill state ${tone}`} title={detail}>
+      <span className="dot" />
+      {label}
+    </span>
+  );
+}
+
+export function Switch({ on, onChange, label }: { on: boolean; onChange: (on: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className={`switch${on ? " on" : ""}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onChange(!on);
+      }}
+    >
+      <span className="knob" />
+    </button>
+  );
+}
+
+export function Checkbox({ checked, onChange, children }: { checked: boolean; onChange: (checked: boolean) => void; children: ReactNode }) {
+  return (
+    <label className="check">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span className="box" aria-hidden>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      </span>
+      <span>{children}</span>
+    </label>
+  );
+}
+
+export function BrandMark() {
+  return <span className="logo">t3</span>;
+}
+
+/** The row every page starts with: logo and breadcrumb, then one pill button. */
+export function TopNav({ crumbs, action }: { crumbs: ReadonlyArray<string>; action?: "cancel" | "back" }) {
+  return (
+    <div className="nav">
+      <a className="brand" href="#">
+        <BrandMark />
+        <span className="crumbs">{["T3 Bridge", ...crumbs].join("  /  ")}</span>
+      </a>
+      {action && (
+        <button className="pill-btn" onClick={() => go({ page: "home" })}>
+          {action === "cancel" ? <X size={15} /> : <ArrowLeft size={15} />}
+          {action === "cancel" ? "Cancel" : "All bots"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A native select drawn like the design's select boxes: an icon, the choice, and up/down
+ * chevrons. The real select sits on top, invisible, so phones still get their own picker.
+ */
+export function SelectBox(props: {
+  icon?: ReactNode;
+  title: ReactNode;
+  meta?: ReactNode;
+  mono?: boolean;
+  disabled?: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`select-box${props.disabled ? " disabled" : ""}`}>
+      {props.icon}
+      <span className="select-text">
+        <span className={props.mono ? "mono" : "select-title"}>{props.title}</span>
+        {props.meta && <span className="select-meta">{props.meta}</span>}
+      </span>
+      <ChevronsUpDown size={16} className="chev" />
+      <select value={props.value} disabled={props.disabled} onChange={(event) => props.onChange(event.target.value)}>
+        {props.children}
+      </select>
+    </div>
+  );
+}
+
+/** T3 threads grouped by project, pinned ones first, for a thread select. */
+export function ThreadOptions({ threads }: { threads: Threads }) {
+  return (
+    <>
+      {threads.projects
+        .map((project) => ({
+          project,
+          threads: threads.threads
+            .filter((thread) => thread.projectId === project.id)
+            .sort((a, b) => Number(b.pinned) - Number(a.pinned)),
+        }))
+        .filter((group) => group.threads.length > 0)
+        .map((group) => (
+          <optgroup key={group.project.id} label={group.project.title}>
+            {group.threads.map((thread) => (
+              <option key={thread.id} value={thread.id}>
+                {thread.pinned ? "📌 " : ""}
+                {thread.title} · {thread.model}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+    </>
   );
 }
 
@@ -87,21 +288,30 @@ export function copyText(text: string) {
   area.remove();
 }
 
-export function CopyButton({ text, label }: { text: string; label: string }) {
+export function useCopied(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false);
-  return (
-    <button
-      className="btn sm"
-      disabled={!text}
-      onClick={() => {
-        copyText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-    >
-      {copied ? "Copied" : label}
-    </button>
-  );
+  return [
+    copied,
+    (text) => {
+      copyText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    },
+  ];
+}
+
+export function useQr(link: string | undefined) {
+  const [qr, setQr] = useState<string | null>(null);
+  useEffect(() => {
+    if (link === undefined) return;
+    void QRCode.toDataURL(link, { margin: 0, width: 328 }).then(setQr);
+  }, [link]);
+  return qr;
+}
+
+/** The panel link with its token hidden, for showing on screen. */
+export function maskedLink(link: string) {
+  return link.replace(/token=.*/, "token=••••••••••");
 }
 
 export function useManifest(api: Api, name: string) {
@@ -119,157 +329,14 @@ export function slackCreateUrl(manifest: unknown) {
 
 /** The manifest itself, for copying by hand when the link or the clipboard is blocked. */
 export function ManifestText({ text }: { text: string }) {
+  const [copied, copy] = useCopied();
   return (
-    <details>
-      <summary className="small muted">Or copy the manifest by hand</summary>
-      <div className="stack tight" style={{ marginTop: 8 }}>
-        <div>
-          <CopyButton text={text} label="Copy manifest" />
-        </div>
-        <textarea
-          className="input mono"
-          rows={8}
-          readOnly
-          value={text}
-          onFocus={(event) => event.currentTarget.select()}
-        />
-      </div>
+    <details className="manifest">
+      <summary>Or copy the manifest by hand</summary>
+      <button className="btn outline sm" onClick={() => copy(text)}>
+        {copied ? "Copied" : "Copy manifest"}
+      </button>
+      <textarea className="input mono" rows={8} readOnly value={text} onFocus={(event) => event.currentTarget.select()} />
     </details>
-  );
-}
-
-export function ThreadPicker(props: {
-  api: Api;
-  threads: Threads | null;
-  value: string | null;
-  instructions: string;
-  onChange: (id: string, created: boolean) => void;
-  reload: () => Promise<void>;
-}) {
-  const [mode, setMode] = useState<"existing" | "new">("existing");
-  const [filter, setFilter] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [title, setTitle] = useState("Orchestrator");
-  const [models, setModels] = useState<ModelSelection[]>([]);
-  const [model, setModel] = useState(0);
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!projectId) return;
-    void props.api.models(projectId).then((result) => {
-      setModels(result.models);
-      setModel(0);
-    });
-  }, [props.api, projectId]);
-
-  if (props.threads === null) return <p className="muted">Loading threads from T3…</p>;
-  const visible = props.threads.threads.filter((thread) =>
-    `${thread.title} ${thread.projectTitle}`.toLowerCase().includes(filter.toLowerCase()),
-  );
-
-  const create = async () => {
-    setCreating(true);
-    setError(null);
-    try {
-      const selection = models[model];
-      const result = await props.api.createThread({
-        projectId,
-        title,
-        instructions: props.instructions,
-        ...(selection ? { modelSelection: selection } : {}),
-      });
-      await props.reload();
-      props.onChange(result.threadId, true);
-      setMode("existing");
-    } catch (cause) {
-      setError(errorText(cause));
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  return (
-    <div className="stack tight">
-      <div>
-        <div className="segmented">
-          <button className={mode === "existing" ? "active" : ""} onClick={() => setMode("existing")}>
-            Use a thread I have
-          </button>
-          <button className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>
-            Create a new one
-          </button>
-        </div>
-      </div>
-      {mode === "existing" ? (
-        <>
-          <input
-            className="input"
-            placeholder="Search threads"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          />
-          <div className="thread-list">
-            {visible.slice(0, 60).map((thread) => (
-              <button
-                key={thread.id}
-                className={`thread-row ${props.value === thread.id ? "selected" : ""}`}
-                onClick={() => props.onChange(thread.id, false)}
-              >
-                <span className="thread-title">
-                  {thread.pinned && "📌 "}
-                  {thread.title}
-                </span>
-                <span className="muted small">
-                  {thread.projectTitle} · {thread.model}
-                </span>
-              </button>
-            ))}
-            {visible.length === 0 && <p className="muted small" style={{ padding: "0 10px" }}>No threads match.</p>}
-          </div>
-        </>
-      ) : (
-        <div className="stack tight">
-          <label className="field">
-            <span>Project</span>
-            <select className="input" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-              <option value="">Choose a project…</option>
-              {props.threads.projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Model</span>
-            <select
-              className="input"
-              value={model}
-              onChange={(event) => setModel(Number(event.target.value))}
-              disabled={models.length === 0}
-            >
-              {models.length === 0 && <option>Project default</option>}
-              {models.map((selection, index) => (
-                <option key={`${selection.instanceId}/${selection.model}`} value={index}>
-                  {selection.model} ({selection.instanceId})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Title</span>
-            <input className="input" value={title} onChange={(event) => setTitle(event.target.value)} />
-          </label>
-          <p className="muted small">The thread is created with full access, pinned, and given the orchestrator instructions.</p>
-          <div className="row">
-            <button className="btn primary" disabled={!projectId || creating} onClick={() => void create()}>
-              {creating ? "Creating…" : "Create and pin thread"}
-            </button>
-            {error && <span className="error-text small">{error}</span>}
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
