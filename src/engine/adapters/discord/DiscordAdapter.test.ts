@@ -120,11 +120,11 @@ describe("DiscordAdapter inbound", () => {
         id: "m0",
         author: { id: "5", username: "wpkeeper", bot: true },
         content: "",
-        embeds: [{ title: "Backup failed", url: "https://salemreporter.com", description: "Stopped 4 times" }],
+        embeds: [{ title: "Backup failed", url: "https://example.com", description: "Stopped 4 times" }],
       },
     });
     expect(await inbound[0]!.earlier!()).toEqual([
-      { author: "wpkeeper", text: "Backup failed (https://salemreporter.com)\nStopped 4 times", files: [] },
+      { author: "wpkeeper", text: "Backup failed (https://example.com)\nStopped 4 times", files: [] },
     ]);
   });
 
