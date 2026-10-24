@@ -69,7 +69,7 @@ async function setup() {
 
 const alert: EarlierMessage = {
   author: "WPKeeper",
-  text: "salemreporter.com: backup failed\nThe panel stopped 4 times during this backup.",
+  text: "example.com: backup failed\nThe panel stopped 4 times during this backup.",
   files: [
     {
       name: "chart.png",
@@ -104,8 +104,8 @@ describe("BotRuntime brought into a conversation", () => {
       return [alert];
     };
     await runtime.handleMessage(mention("Is this issue on our end? Please repro", "101.000", earlier));
-    expect(dispatched[0]!.text).toContain('thread "salemreporter.com: backup failed');
-    expect(dispatched[0]!.text).toContain("WPKeeper [1 file attached]:\n> salemreporter.com: backup failed");
+    expect(dispatched[0]!.text).toContain('thread "example.com: backup failed');
+    expect(dispatched[0]!.text).toContain("WPKeeper [1 file attached]:\n> example.com: backup failed");
     expect(dispatched[0]!.text).toMatch(/The request:\n\nIs this issue on our end\? Please repro$/);
     expect(uploaded).toEqual(["chart.png"]);
 
@@ -113,7 +113,7 @@ describe("BotRuntime brought into a conversation", () => {
     await runtime.handleMessage(mention("Any news?", "102.000", earlier));
     expect(loads).toBe(1);
     expect(dispatched[1]!.text).not.toContain("WPKeeper");
-    expect(dispatched[1]!.text).toContain('thread "salemreporter.com: backup failed');
+    expect(dispatched[1]!.text).toContain('thread "example.com: backup failed');
     await runtime.stop();
   });
 
@@ -137,7 +137,7 @@ describe("earlierText", () => {
       files: [],
     }));
     const text = earlierText([alert, ...replies]);
-    expect(text).toContain("> salemreporter.com: backup failed");
+    expect(text).toContain("> example.com: backup failed");
     expect(text).toContain("reply 39");
     expect(text).not.toContain("reply 0 ");
     expect(text).toMatch(/\(\d+ more messages not shown\)/);

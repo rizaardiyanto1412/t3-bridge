@@ -250,7 +250,7 @@ export function AddBot(props: {
             {platform === "telegram" && (
               <>
                 <li>Send /newbot, then a display name{name.trim() ? ` such as ${name.trim()}` : ""}.</li>
-                <li>Send a username ending in bot, such as {(name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "wpkeeper")}_bot.</li>
+                <li>Send a username ending in bot, such as {(name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "helper")}_bot.</li>
                 <li>BotFather replies with a token like 123456:ABC… Copy it; you paste it in the next step.</li>
               </>
             )}

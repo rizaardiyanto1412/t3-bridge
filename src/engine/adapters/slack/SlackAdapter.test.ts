@@ -84,8 +84,8 @@ function setup(
               text: "",
               attachments: [
                 {
-                  title: "salemreporter.com: backup failed",
-                  title_link: "https://salemreporter.com",
+                  title: "example.com: backup failed",
+                  title_link: "https://example.com",
                   text: "The panel stopped 4 times during this backup.",
                   fallback: "backup failed",
                 },
@@ -517,7 +517,7 @@ describe("SlackAdapter thread context", () => {
     expect(earlier.map((message) => [message.author, message.text])).toEqual([
       [
         "WPKeeper",
-        "salemreporter.com: backup failed (https://salemreporter.com)\nThe panel stopped 4 times during this backup.",
+        "example.com: backup failed (https://example.com)\nThe panel stopped 4 times during this backup.",
       ],
       ["Riza", "Seen this before?"],
     ]);

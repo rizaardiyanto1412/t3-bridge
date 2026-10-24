@@ -57,7 +57,7 @@ export function botState(bot: BotStatus, t3: Status["t3"]): { label: string; ton
   return { label: "Idle", tone: "idle" };
 }
 
-/** The account the bot runs as, e.g. "@wpkeeper · paywallproject". */
+/** The account the bot runs as, e.g. "@helper · acme". */
 export function botHandle(bot: BotStatus) {
   const identity = bot.connection.identity;
   if (bot.platform === "slack" && identity?.includes(" @ ")) {
