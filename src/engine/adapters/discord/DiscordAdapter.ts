@@ -14,6 +14,7 @@ import {
   type AdapterHandlers,
   type ChatAdapter,
   type ConversationRef,
+  type EarlierMessage,
   type ImageRef,
   type InboundFile,
   type InboundMessage,
@@ -141,6 +142,17 @@ interface DiscordMessage {
   attachments?: DiscordAttachment[];
   message_reference?: { type?: number; message_id?: string; channel_id?: string };
   message_snapshots?: Array<{ message: { content?: string; attachments?: DiscordAttachment[] } }>;
+  embeds?: DiscordEmbed[];
+  /** The message this one replies to, sent along with replies. */
+  referenced_message?: DiscordMessage | null;
+}
+
+interface DiscordEmbed {
+  title?: string;
+  url?: string;
+  description?: string;
+  fields?: Array<{ name: string; value: string }>;
+  footer?: { text?: string };
 }
 
 interface DiscordInteraction {
@@ -451,6 +463,9 @@ export class DiscordAdapter implements ChatAdapter {
               ts: message.message_reference.message_id,
             }
           : null,
+      ...(!forwarded && message.referenced_message
+        ? { earlier: async () => [earlierMessage(message.referenced_message!)] }
+        : {}),
     };
     await this.handlers?.onMessage(inbound);
   }
@@ -670,6 +685,21 @@ export class DiscordAdapter implements ChatAdapter {
       return { channel: posted.channel_id, ts: posted.id };
     }
   }
+}
+
+/** A replied-to message, with what other bots put in embeds (alerts usually do). */
+function earlierMessage(message: DiscordMessage): EarlierMessage {
+  const embeds = (message.embeds ?? []).flatMap((embed) => [
+    embed.title && embed.url ? `${embed.title} (${embed.url})` : embed.title,
+    embed.description,
+    ...(embed.fields ?? []).map((field) => `${field.name}: ${field.value}`),
+    embed.footer?.text,
+  ]);
+  return {
+    author: message.member?.nick ?? message.author.global_name ?? message.author.username,
+    text: [message.content, ...embeds].filter((part) => part?.trim()).join("\n"),
+    files: (message.attachments ?? []).map(inboundFile),
+  };
 }
 
 function inboundFile(attachment: DiscordAttachment): InboundFile {

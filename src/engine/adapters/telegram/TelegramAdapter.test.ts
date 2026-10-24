@@ -76,7 +76,7 @@ describe("TelegramAdapter inbound", () => {
         chat: { id: -100, type: "supergroup", title: "Team" },
         text: "@keeper_bot fix the login page",
         entities: [{ type: "mention", offset: 0, length: 11 }],
-        reply_to_message: { message_id: 3 },
+        reply_to_message: { message_id: 3, chat: { id: -100, type: "supergroup" } },
       }),
     });
     expect(inbound[0]).toMatchObject({
@@ -85,6 +85,30 @@ describe("TelegramAdapter inbound", () => {
       text: "fix the login page",
       replyTo: { channel: "-100", ts: "3" },
     });
+  });
+
+  it("offers the replied-to message as earlier context", async () => {
+    const { inbound, update } = setup();
+    await update({
+      message: message({
+        chat: { id: -100, type: "supergroup", title: "Team" },
+        text: "@keeper_bot is this on our end?",
+        entities: [{ type: "mention", offset: 0, length: 11 }],
+        reply_to_message: {
+          message_id: 3,
+          chat: { id: -100, type: "supergroup", title: "Team" },
+          from: { id: 8, is_bot: true, first_name: "WPKeeper" },
+          caption: "Backup failed",
+          photo: [{ file_id: "p", width: 9, height: 9, file_size: 10 }],
+        },
+      }),
+    });
+    const [earlier] = await inbound[0]!.earlier!();
+    expect([earlier!.author, earlier!.text, earlier!.files.map((file) => file.name)]).toEqual([
+      "WPKeeper",
+      "Backup failed",
+      ["photo-3.jpg"],
+    ]);
   });
 
   it("drops the @bot suffix from commands", async () => {
@@ -106,7 +130,7 @@ describe("TelegramAdapter inbound", () => {
         chat: { id: -100, type: "supergroup", title: "Team" },
         is_topic_message: true,
         message_thread_id: 9,
-        reply_to_message: { message_id: 9 },
+        reply_to_message: { message_id: 9, chat: { id: -100, type: "supergroup" } },
       }),
     });
     expect(inbound[0]!.replyTo).toBeNull();

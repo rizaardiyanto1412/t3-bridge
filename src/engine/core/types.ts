@@ -36,8 +36,21 @@ export interface InboundMessage {
   readonly mentionsBot: boolean;
   readonly text: string;
   readonly files: ReadonlyArray<InboundFile>;
-  /** Set when the message replies to a question the bot posted. */
+  /** The message or thread this one replies to; for a reply to the bot's own post, that post. */
   readonly replyTo: MessageRef | null;
+  /**
+   * Loads what came before this message in the conversation it replies to: the message it
+   * answers, or the start of the chat thread it was posted in. The core calls it only when the
+   * bot is brought into a conversation it was not part of, e.g. mentioned under an alert.
+   */
+  readonly earlier?: () => Promise<ReadonlyArray<EarlierMessage>>;
+}
+
+/** A message from before the bot was brought into a conversation, oldest first. */
+export interface EarlierMessage {
+  readonly author: string;
+  readonly text: string;
+  readonly files: ReadonlyArray<InboundFile>;
 }
 
 export type InboundAction =

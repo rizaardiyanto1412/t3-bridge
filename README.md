@@ -125,6 +125,10 @@ continue that request; start a new message for a new one.
   summarizes what they found; expand a card to see the start of its raw result.
 - Forwarded messages reach the agent with their text, author and link, plus their images and
   files.
+- Mention the bot in the replies under any message, such as another app's alert, and the agent
+  gets what came before: the message the thread started with and the replies so far, quoted with
+  their files. The thread is named after that opening message. In Discord and Telegram the same
+  goes for a reply to someone else's message.
 - Images go both ways: pictures you attach in Slack reach the agent, and screenshots or images
   the agent shows (including ones it saved on the Mac) are uploaded to the thread.
 - HTML pages the agent renders arrive as an `.html` file.

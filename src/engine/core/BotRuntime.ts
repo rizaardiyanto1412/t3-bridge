@@ -45,13 +45,16 @@ import {
   newActivity,
   type ActivityEntry,
 } from "./activity.ts";
+import { truncate } from "./markdown.ts";
 import {
   PlatformError,
   type AdapterStatus,
   type ChatAdapter,
   type ConversationRef,
+  type EarlierMessage,
   type ImageRef,
   type InboundAction,
+  type InboundFile,
   type InboundMessage,
   type MessageRef,
   type OutboundPost,
@@ -90,6 +93,8 @@ interface BotState {
   lastConversation: ConversationRef | null;
   /** The thread someone last wrote in; replies that cannot be traced to a request go here. */
   lastThread?: ConversationRef | null;
+  /** Conversations, as `${channel}:${ts}`, whose earlier messages were already sent to T3. */
+  contextSent?: string[];
   /** Each chat thread's title (its opening request), keyed by `${channel}:${threadTs}`. */
   threadTitles?: Record<string, string>;
   /** The latest chat requests and what came of them, newest last. */
@@ -103,6 +108,9 @@ const NATIVE_STREAM_INTERVAL_MS = 700;
 const MAX_DELIVERY_ATTEMPTS = 12;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
+/** Earlier messages are quoted up to about this many characters, newest kept. */
+const MAX_CONTEXT_CHARS = 6000;
+const MAX_CONTEXT_FILES = 6;
 
 export interface BotRuntimeOptions {
   readonly bot: BotConfig;
@@ -712,9 +720,13 @@ export class BotRuntime {
     const answered = await this.answerFromReply(message, text);
     if (answered) return;
 
+    const earlier = await this.earlierContext(message);
     let recorded: string | null = null;
     try {
-      const attachments = await this.uploadFiles(message);
+      const attachments = await this.uploadFiles({
+        ...message,
+        files: [...earlier.files, ...message.files],
+      });
       const messageId = MessageId.make(Crypto.randomUUID());
       this.state.sentMessages[messageId] = {
         ref: message.ref,
@@ -723,7 +735,7 @@ export class BotRuntime {
         conversation,
       };
       this.scheduleSave();
-      const title = this.threadTitle(message, conversation, text);
+      const title = this.threadTitle(message, conversation, text, earlier.opening);
       const prefix = `[${[
         this.options.platformLabel,
         message.userName,
@@ -744,7 +756,7 @@ export class BotRuntime {
         creationSource: "mobile",
         threadId: ThreadId.make(threadId),
         messageId,
-        text: `${prefix}${text.length > 0 ? text : "(see attachments)"}`,
+        text: `${prefix}${earlier.text}${text.length > 0 ? text : "(see attachments)"}`,
         attachments,
         dispatchMode: { type: "queue_after_active" },
       });
@@ -781,20 +793,53 @@ export class BotRuntime {
     message: InboundMessage,
     conversation: ConversationRef,
     text: string,
+    /** The first earlier message, when the bot joined a thread it did not start. */
+    opening: string | null,
   ): string | null {
     if (!this.options.threaded || conversation.threadTs === undefined) return null;
     const key = `${conversation.id}:${conversation.threadTs}`;
     this.state.threadTitles ??= {};
     const known = this.state.threadTitles[key];
     if (known !== undefined) return known;
-    if (message.replyTo !== null) return null;
-    const title = requestTitle(text);
+    if (message.replyTo !== null && opening === null) return null;
+    const title = requestTitle(opening ?? text);
     this.state.threadTitles[key] = title;
     const titles = Object.entries(this.state.threadTitles);
     if (titles.length > MAX_RECORDS)
       this.state.threadTitles = Object.fromEntries(titles.slice(-MAX_RECORDS));
     void this.options.adapter.setThreadTitle?.(conversation, title).catch(() => {});
     return title;
+  }
+
+  /**
+   * When someone brings the bot into a conversation it was not part of (a mention under an
+   * alert, a reply to someone else's message), the agent gets what came before, quoted, with
+   * its files. Each conversation's history is sent once; later messages build on it in T3.
+   */
+  private async earlierContext(
+    message: InboundMessage,
+  ): Promise<{ text: string; files: ReadonlyArray<InboundFile>; opening: string | null }> {
+    const none = { text: "", files: [], opening: null };
+    const replyTo = message.replyTo;
+    if (replyTo === null || message.earlier === undefined || this.isReplyToBot(replyTo)) return none;
+    const key = `${message.conversation.id}:${replyTo.ts}`;
+    if (this.state.contextSent?.includes(key)) return none;
+    let messages: ReadonlyArray<EarlierMessage>;
+    try {
+      messages = await message.earlier();
+    } catch (error) {
+      this.options.log.warn(`[${this.bot.name}] reading the earlier messages failed`, error);
+      return none;
+    }
+    if (messages.length === 0) return none;
+    this.state.contextSent = [...(this.state.contextSent ?? []), key].slice(-MAX_RECORDS);
+    return {
+      text: `${earlierText(messages)}
+
+`,
+      files: messages.flatMap((earlier) => earlier.files).slice(-MAX_CONTEXT_FILES),
+      opening: messages[0]!.text,
+    };
   }
 
   /** `!new`: a fresh orchestrator thread when the current one has grown long. */
@@ -980,6 +1025,35 @@ async function readLocalImage(path: string): Promise<{ bytes: Buffer; mimeType: 
   const stat = await FS.stat(path);
   if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES) throw new Error(`${path} is missing or too large`);
   return { bytes: await FS.readFile(path), mimeType };
+}
+
+/**
+ * Earlier messages quoted for the agent, newest kept when they run long. The opening message
+ * (an alert, the question) is always kept, since it is what the thread is about.
+ */
+export function earlierText(messages: ReadonlyArray<EarlierMessage>): string {
+  const quote = (earlier: EarlierMessage) => {
+    const files = earlier.files.length;
+    const body = earlier.text.trim() || (files > 0 ? "(files only)" : "(no text)");
+    const note = files > 0 ? ` [${files} file${files === 1 ? "" : "s"} attached]` : "";
+    return [`${earlier.author}${note}:`, ...body.split("\n").map((line) => `> ${line}`)].join("\n");
+  };
+  const [first, ...rest] = messages.map(quote);
+  const kept: string[] = [];
+  let size = first!.length;
+  for (const quoted of rest.reverse()) {
+    if (size + quoted.length > MAX_CONTEXT_CHARS) break;
+    kept.unshift(quoted);
+    size += quoted.length;
+  }
+  const skipped = rest.length - kept.length;
+  return [
+    "Earlier in this conversation, before you were brought in:",
+    truncate(first!, MAX_CONTEXT_CHARS),
+    ...(skipped > 0 ? [`(${skipped} more message${skipped === 1 ? "" : "s"} not shown)`] : []),
+    ...kept,
+    "The request:",
+  ].join("\n\n");
 }
 
 /** The opening request, trimmed to a short thread title. */
