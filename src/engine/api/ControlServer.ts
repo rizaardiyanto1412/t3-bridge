@@ -23,6 +23,8 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
 };
 
+const TAILNET_RETRY_MS = 30_000;
+
 class HttpError extends Error {
   readonly status: number;
 
@@ -58,6 +60,7 @@ export interface ControlServerOptions {
 export class ControlServer {
   private readonly servers: Http.Server[] = [];
   hosts: string[] = [];
+  private tailnetWatch: NodeJS.Timeout | undefined;
 
   private readonly options: ControlServerOptions;
 
@@ -66,29 +69,50 @@ export class ControlServer {
   }
 
   async start(port: number): Promise<void> {
-    const hosts = ["127.0.0.1", ...tailnetAddresses()];
-    for (const host of hosts) {
-      const server = Http.createServer((request, response) => {
-        void this.handle(request, response);
-      });
-      await new Promise<void>((resolve) => {
-        server.once("error", (error) => {
-          this.options.engine.log.warn(`Control panel could not listen on ${host}:${port}`, error);
-          resolve();
-        });
-        server.listen(port, host, () => {
-          this.servers.push(server);
-          this.hosts.push(host);
-          resolve();
-        });
-      });
-    }
+    for (const host of ["127.0.0.1", ...tailnetAddresses()]) await this.listen(port, host);
     this.options.engine.log.info(
       `Control panel on ${this.hosts.map((host) => `http://${host}:${port}`).join(", ")}`,
     );
+    // After a power cut the Mac can start the bridge before Tailscale is up. Keep looking
+    // for a tailnet address until the panel listens on one, then stop.
+    if (!this.onTailnet()) {
+      this.tailnetWatch = setInterval(() => void this.joinTailnet(port), TAILNET_RETRY_MS);
+      this.tailnetWatch.unref();
+    }
+  }
+
+  private async joinTailnet(port: number) {
+    for (const host of tailnetAddresses()) {
+      if (!this.hosts.includes(host) && (await this.listen(port, host))) {
+        this.options.engine.log.info(`Control panel on http://${host}:${port}`);
+      }
+    }
+    if (this.onTailnet()) clearInterval(this.tailnetWatch);
+  }
+
+  private onTailnet() {
+    return this.hosts.some((host) => host !== "127.0.0.1");
+  }
+
+  private async listen(port: number, host: string): Promise<boolean> {
+    const server = Http.createServer((request, response) => {
+      void this.handle(request, response);
+    });
+    return new Promise<boolean>((resolve) => {
+      server.once("error", (error) => {
+        this.options.engine.log.warn(`Control panel could not listen on ${host}:${port}`, error);
+        resolve(false);
+      });
+      server.listen(port, host, () => {
+        this.servers.push(server);
+        this.hosts.push(host);
+        resolve(true);
+      });
+    });
   }
 
   async stop() {
+    clearInterval(this.tailnetWatch);
     await Promise.all(
       this.servers.map((server) => new Promise((resolve) => server.close(resolve))),
     );
