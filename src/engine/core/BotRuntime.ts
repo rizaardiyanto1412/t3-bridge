@@ -743,6 +743,7 @@ export class BotRuntime {
           ? []
           : [`${message.replyTo === null ? "new thread" : "thread"} "${title}"`]),
         ...(this.bot.reminder ? ["delegate via subagents"] : []),
+        ...(this.options.adapter.mentionHint ? [this.options.adapter.mentionHint] : []),
       ].join(" · ")}]\n`;
       // Recorded before dispatching: the run's first events can arrive before dispatch returns.
       recorded = messageId;
