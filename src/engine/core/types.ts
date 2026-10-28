@@ -185,6 +185,8 @@ export class PlatformError extends Error {
 }
 
 export interface ChatAdapter {
+  /** How the agent mentions someone on this platform, told to it with each message. */
+  readonly mentionHint?: string;
   start(handlers: AdapterHandlers): Promise<void>;
   stop(): Promise<void>;
   /** Posts a new message, or edits `existing` in place. Returns the ref to edit next time. */

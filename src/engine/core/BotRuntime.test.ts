@@ -33,6 +33,7 @@ async function setup() {
     },
   } as unknown as T3Client;
   const adapter: ChatAdapter = {
+    mentionHint: "write @Name to notify someone",
     start: async () => {},
     stop: async () => {},
     upsert: async () => ({ ts: "posted" }),
@@ -104,6 +105,7 @@ describe("BotRuntime brought into a conversation", () => {
       return [alert];
     };
     await runtime.handleMessage(mention("Is this issue on our end? Please repro", "101.000", earlier));
+    expect(dispatched[0]!.text).toMatch(/^\[Slack · Riza · .* · write @Name to notify someone\]\n/);
     expect(dispatched[0]!.text).toContain('thread "example.com: backup failed');
     expect(dispatched[0]!.text).toContain("WPKeeper [1 file attached]:\n> example.com: backup failed");
     expect(dispatched[0]!.text).toMatch(/The request:\n\nIs this issue on our end\? Please repro$/);

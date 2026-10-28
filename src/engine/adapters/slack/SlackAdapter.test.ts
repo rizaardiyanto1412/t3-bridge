@@ -55,7 +55,19 @@ function setup(
         update: record("update"),
         delete: record("delete"),
       },
-      users: { info: async () => ({ user: { profile: { display_name: "Riza" } } }) },
+      users: {
+        info: async ({ user }: { user: string }) => ({
+          user: { profile: { display_name: user === "U3" ? "Tyler" : "Riza" } },
+        }),
+        list: async () => ({
+          members: [
+            { id: "U1", name: "riza", real_name: "Riza", profile: { display_name: "Riza" } },
+            { id: "U3", name: "tyler", real_name: "Tyler Channell", profile: { display_name: "" } },
+            { id: "U4", name: "sam.a", real_name: "Sam Adams", profile: { display_name: "" } },
+            { id: "U5", name: "sam.b", real_name: "Sam Brown", profile: { display_name: "" } },
+          ],
+        }),
+      },
       reactions: { add: record("reactions.add"), remove: record("reactions.remove") },
       apiCall: async (method: string, args: Record<string, unknown>) => {
         calls.push({ method, args });
@@ -527,5 +539,72 @@ describe("SlackAdapter thread context", () => {
     const { inbound, onMessage } = setup();
     await onMessage({ type: "message", channel: "C1", channel_type: "channel", user: "U1", text: "hi", ts: "5.000" });
     expect(inbound[0]!.earlier).toBeUndefined();
+  });
+
+  it("names the people a message mentions, keeping their ids", async () => {
+    const { inbound, onMessage } = setup();
+    await onMessage({
+      type: "message",
+      channel: "C1",
+      channel_type: "channel",
+      user: "U1",
+      ts: "6.1",
+      text: "<@UBOT> tag <@U3> and see if he likes it",
+    });
+    expect(inbound[0]!.text).toBe("tag @Tyler (<@U3>) and see if he likes it");
+  });
+
+  it("turns the agent's @Name into a Slack mention, leaving shared names and code alone", async () => {
+    const { adapter, calls } = setup();
+    await adapter.upsert(
+      dm,
+      {
+        kind: "assistant",
+        markdown: "@tyler channell, @Riza and @Sam: see `@Tyler` and mail me@Tyler.dev",
+        streaming: false,
+        images: [],
+      },
+      null,
+    );
+    const blocks = calls[0]!.args.blocks as Array<{ text: string }>;
+    expect(blocks[0]!.text).toBe("<@U3>, <@U1> and @Sam: see `@Tyler` and mail me@Tyler.dev");
+  });
+
+  it("streams a name only once it is complete", async () => {
+    const { adapter, calls } = setup({ threaded: true });
+    const thread = { id: "D1", label: "Direct message", threadTs: "100.1" };
+    const ref = await adapter.upsert(
+      thread,
+      { kind: "assistant", markdown: "Hi @Ty", streaming: true, images: [] },
+      null,
+    );
+    await adapter.upsert(
+      thread,
+      { kind: "assistant", markdown: "Hi @Tyler Channell, the three page designs are ready", streaming: true, images: [] },
+      ref,
+    );
+    await adapter.upsert(
+      thread,
+      { kind: "assistant", markdown: "Hi @Tyler Channell, the three page designs are ready.", streaming: false, images: [] },
+      ref,
+    );
+    const streamed = calls
+      .filter((call) => call.method === "chat.startStream" || call.method === "chat.appendStream")
+      .map((call) => call.args.markdown_text);
+    expect(streamed).toEqual(["Hi ", "<@U3>, the three page designs are ready", "."]);
+    expect(calls.map((call) => call.method)).not.toContain("update");
+  });
+
+  it("writes mentions in a canvas the way canvases take them", async () => {
+    const { adapter, calls } = setup();
+    await adapter.upsert(
+      dm,
+      { kind: "assistant", markdown: `@Tyler ${"x".repeat(5000)}`, streaming: false, images: [] },
+      null,
+    );
+    const created = calls.find((call) => call.method === "canvases.create")!;
+    expect(
+      (created.args.document_content as { markdown: string }).markdown.startsWith("![](@U3) x"),
+    ).toBe(true);
   });
 });

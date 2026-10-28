@@ -33,6 +33,16 @@ import {
 } from "./blocks.ts";
 import { reportPreview, reportTitle } from "../../core/markdown.ts";
 import { notificationText, splitSlackMarkdown } from "./format.ts";
+import {
+  buildDirectory,
+  canvasMentions,
+  holdBackMention,
+  linkMentions,
+  mayMention,
+  mentionedIds,
+  nameMentions,
+  type Directory,
+} from "./mentions.ts";
 
 interface Content {
   readonly text: string;
@@ -52,6 +62,8 @@ const STOP_REACTIONS = new Set(["octagonal_sign", "stop_sign", "no_entry"]);
 export const CANVAS_THRESHOLD = 4000;
 /** chat.startStream and chat.appendStream take at most 12,000 characters each. */
 const STREAM_CHUNK_LIMIT = 11_000;
+/** How long the workspace's member list is trusted before it is read again. */
+const DIRECTORY_TTL_MS = 10 * 60_000;
 
 interface PendingForward {
   readonly channel: string;
@@ -117,11 +129,14 @@ interface SlackEventMessage {
  * with its own pair of tokens.
  */
 export class SlackAdapter implements ChatAdapter {
+  readonly mentionHint = "write @Name to notify someone";
   private readonly web: WebClient;
   private socket: SocketModeClient | null = null;
   private handlers: AdapterHandlers | null = null;
   private botUserId = "";
   private readonly userNames = new Map<string, string>();
+  /** The workspace's members by name, for turning the agent's `@Name` into a mention. */
+  private directory: { readonly names: Directory; readonly at: number } | null = null;
   private readonly seenEvents = new Map<string, number>();
   /** Questions by request, so the Answer button can build its modal. */
   private readonly questions = new Map<string, ReadonlyArray<Question>>();
@@ -278,7 +293,10 @@ export class SlackAdapter implements ChatAdapter {
       userName: await this.userName(event.user),
       isDirect,
       mentionsBot,
-      text: [decodeSlackText(text), ...(await this.sharedMessagesText(event.attachments))]
+      text: [
+        await this.withNames(decodeSlackText(text)),
+        ...(await this.sharedMessagesText(event.attachments)),
+      ]
         .filter(Boolean)
         .join("\n\n"),
       files: await this.inboundFiles([
@@ -403,7 +421,7 @@ export class SlackAdapter implements ChatAdapter {
       channel,
       ts: message.ts ?? "",
       author,
-      text: decodeSlackText(message.text ?? ""),
+      text: await this.withNames(decodeSlackText(message.text ?? "")),
       files: message.files,
     });
     if (this.pendingForwards.size > 50) {
@@ -471,7 +489,7 @@ export class SlackAdapter implements ChatAdapter {
         author: candidate.user
           ? await this.userName(candidate.user)
           : (candidate.bot_profile?.name ?? candidate.username ?? "a bot"),
-        text: slackMessageText(candidate),
+        text: await this.withNames(slackMessageText(candidate)),
         files: await this.inboundFiles(candidate.files ?? []),
       });
     }
@@ -490,8 +508,12 @@ export class SlackAdapter implements ChatAdapter {
       );
     }
     for (const shared of sharedMessages(attachments)) {
-      const body = decodeSlackText(
-        shared.text ?? shared.message_blocks?.map((block) => block.message?.text ?? "").join("\n") ?? shared.fallback ?? "",
+      const body = (
+        await this.withNames(
+          decodeSlackText(
+            shared.text ?? shared.message_blocks?.map((block) => block.message?.text ?? "").join("\n") ?? shared.fallback ?? "",
+          ),
+        )
       ).trim();
       const author = shared.author_name ?? (shared.author_id ? await this.userName(shared.author_id) : "someone");
       const files = sharedFiles(shared).length;
@@ -543,6 +565,49 @@ export class SlackAdapter implements ChatAdapter {
     } catch {
       return userId;
     }
+  }
+
+  /** Puts a name next to each mention, so the agent knows who is meant and can mention them too. */
+  private async withNames(text: string) {
+    const ids = mentionedIds(text);
+    if (ids.length === 0) return text;
+    const names = new Map<string, string>();
+    for (const id of ids) names.set(id, await this.userName(id));
+    return nameMentions(text, names);
+  }
+
+  /** The agent's `@Name`s as Slack mentions. */
+  private async withMentions(markdown: string) {
+    if (!mayMention(markdown)) return markdown;
+    return linkMentions(markdown, await this.memberDirectory());
+  }
+
+  private async memberDirectory(): Promise<Directory> {
+    if (this.directory !== null && Date.now() - this.directory.at < DIRECTORY_TTL_MS)
+      return this.directory.names;
+    const people: Array<{ id: string; names: Array<string | undefined> }> = [];
+    try {
+      let cursor: string | undefined;
+      do {
+        const page = await this.web.users.list({ limit: 200, ...(cursor ? { cursor } : {}) });
+        for (const member of page.members ?? []) {
+          if (!member.id || member.deleted) continue;
+          people.push({
+            id: member.id,
+            names: [member.profile?.display_name, member.real_name, member.name],
+          });
+        }
+        cursor = page.response_metadata?.next_cursor || undefined;
+      } while (cursor);
+    } catch (error) {
+      // Without the member list, only people already seen in chat can be mentioned.
+      this.log.warn(`[${this.name}] reading the member list failed`, error);
+      if (this.directory !== null) return this.directory.names;
+      people.push(...[...this.userNames].map(([id, name]) => ({ id, names: [name] })));
+      return buildDirectory(people);
+    }
+    this.directory = { names: buildDirectory(people), at: Date.now() };
+    return this.directory.names;
   }
 
   private async downloadFile(url: string): Promise<Buffer> {
@@ -659,6 +724,13 @@ export class SlackAdapter implements ChatAdapter {
     if (post.kind === "question")
       this.questions.set(`${post.threadId}:${post.requestId}`, post.questions);
     if (post.kind === "html") return existing ?? (await this.postHtml(conversation, post));
+    if (post.kind === "assistant") {
+      const shown =
+        post.streaming && this.threaded && existing?.stream !== "done"
+          ? holdBackMention(post.markdown)
+          : post.markdown;
+      post = { ...post, markdown: await this.withMentions(shown) };
+    }
     if (
       post.kind === "assistant" &&
       this.threaded &&
@@ -849,7 +921,7 @@ export class SlackAdapter implements ChatAdapter {
       if (id === null) {
         const created = (await this.web.apiCall("canvases.create", {
           title,
-          document_content: { type: "markdown", markdown },
+          document_content: { type: "markdown", markdown: canvasMentions(markdown) },
         })) as { canvas_id?: string };
         if (!created.canvas_id) return null;
         id = created.canvas_id;
@@ -857,7 +929,12 @@ export class SlackAdapter implements ChatAdapter {
       } else {
         await this.web.apiCall("canvases.edit", {
           canvas_id: id,
-          changes: [{ operation: "replace", document_content: { type: "markdown", markdown } }],
+          changes: [
+            {
+              operation: "replace",
+              document_content: { type: "markdown", markdown: canvasMentions(markdown) },
+            },
+          ],
         });
       }
       const info = (await this.web.files.info({ file: id })) as { file?: { permalink?: string } };
@@ -1125,7 +1202,14 @@ export function slackMessageText(message: SlackThreadMessage): string {
 function richTextOf(elements: unknown[]): string {
   return elements
     .map((element) => {
-      const node = element as { text?: string; url?: string; elements?: unknown[]; type?: string };
+      const node = element as {
+        text?: string;
+        url?: string;
+        elements?: unknown[];
+        type?: string;
+        user_id?: string;
+      };
+      if (node.type === "user" && node.user_id) return `<@${node.user_id}>`;
       if (node.elements) return richTextOf(node.elements) + (node.type === "rich_text_section" ? "\n" : "");
       return node.text ?? node.url ?? "";
     })
