@@ -80,7 +80,7 @@ export function linkMentions(markdown: string, directory: Directory): string {
  * "@Tyler Channell"). Streamed text cannot be rewritten, so a recent `@` waits for more text.
  */
 export function holdBackMention(markdown: string): string {
-  const at = markdown.search(/(?<![\p{L}\p{N}_<.])@\p{L}[^@\n]{0,40}$/u);
+  const at = markdown.search(/(?<![\p{L}\p{N}_<.])@(?:\p{L}[^@\n]{0,40})?$/u);
   return at === -1 ? markdown : markdown.slice(0, at);
 }
 

@@ -575,8 +575,13 @@ describe("SlackAdapter thread context", () => {
     const thread = { id: "D1", label: "Direct message", threadTs: "100.1" };
     const ref = await adapter.upsert(
       thread,
-      { kind: "assistant", markdown: "Hi @Ty", streaming: true, images: [] },
+      { kind: "assistant", markdown: "Hi @", streaming: true, images: [] },
       null,
+    );
+    await adapter.upsert(
+      thread,
+      { kind: "assistant", markdown: "Hi @Ty", streaming: true, images: [] },
+      ref,
     );
     await adapter.upsert(
       thread,
