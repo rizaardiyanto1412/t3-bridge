@@ -148,6 +148,25 @@ continue that request; start a new message for a new one.
 
 Only allowed people can send work. The bot runs code on your Mac, so keep that list short.
 
+## Project memory
+
+Each bot remembers lasting facts about its project: how to reach a server, where something lives,
+decisions, gotchas. Memory belongs to the project, so every thread and subagent on that project
+shares it, and bots on other projects never see it. It is the folder Claude Code already keeps
+for the project, `~/.claude/projects/<project path>/memory/`, so Claude's own memory and the
+bot's are one copy.
+
+- The instructions T3 Bridge sends tell the orchestrator where memory is, to put the facts that
+  matter into every subagent brief, and to ask subagents to report new facts. After updating,
+  choose **Send the instructions to the thread now** on each bot's page once.
+- An agent line starting with `REMEMBER:`, in the orchestrator's reply or a subagent's report,
+  is saved to memory. Chat shows a 🧠 note instead of the line.
+- `!remember <fact>` saves a fact as you said it; `!forget <words>` removes the lines that
+  contain those words. Both work in Slack, Discord and Telegram.
+- **Project memory** on the bot's page shows the index (`MEMORY.md`) and the files it links.
+  Edit or add them there. The agent reads about the first 200 lines of the index, so keep
+  details in their own files.
+
 ## In Discord and Telegram
 
 Discord and Telegram bots work like a Slack bot without the AI-app layout: replies go straight

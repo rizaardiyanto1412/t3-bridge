@@ -129,7 +129,7 @@ export class ControlServer {
   private async handle(request: Http.IncomingMessage, response: Http.ServerResponse) {
     response.setHeader("access-control-allow-origin", "*");
     response.setHeader("access-control-allow-headers", "authorization, content-type");
-    response.setHeader("access-control-allow-methods", "GET, POST, PATCH, DELETE, OPTIONS");
+    response.setHeader("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     if (request.method === "OPTIONS") return void response.writeHead(204).end();
     const url = new URL(request.url ?? "/", "http://bridge.local");
     try {
@@ -193,7 +193,11 @@ export class ControlServer {
     const activityMatch = /^\/api\/bots\/([\w-]+)\/activity$/.exec(path);
     if (method === "GET" && activityMatch !== null)
       return { entries: engine.activity(activityMatch[1]!) };
-    const freshMatch = /^\/api\/bots\/([\w-]+)\/new-thread$/.exec(path);
+    const memoryMatch = /^\/api\/bots\/([\w-]+)\/memory$/.exec(path);
+    if (method === "GET" && memoryMatch !== null) return engine.memory(memoryMatch[1]!);
+    if (method === "PUT" && memoryMatch !== null)
+      return engine.saveMemory(memoryMatch[1]!, body as { name: string; text: string });
+    const freshMatch =/^\/api\/bots\/([\w-]+)\/new-thread$/.exec(path);
     if (method === "POST" && freshMatch !== null) return engine.startFreshThread(freshMatch[1]!);
     const stopMatch = /^\/api\/bots\/([\w-]+)\/stop$/.exec(path);
     if (method === "POST" && stopMatch !== null) {

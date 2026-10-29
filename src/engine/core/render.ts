@@ -8,6 +8,7 @@ import type {
 } from "@t3tools/contracts";
 import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 
+import { withoutRememberLines } from "./memory.ts";
 import type {
   ImageRef,
   OutboundPost,
@@ -73,7 +74,7 @@ export function postForTurnItem(
   if ("nodeId" in item && isInsideSubagent(item.nodeId, context.nodes)) return null;
   switch (item.type) {
     case "assistant_message": {
-      const local = extractLocalImages(item.text);
+      const local = extractLocalImages(withoutRememberLines(item.text));
       const images = [
         ...(item.attachments ?? [])
           .filter((attachment) => attachment.type === "image")

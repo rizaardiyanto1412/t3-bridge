@@ -17,6 +17,15 @@ import { TelegramAdapter, testTelegramToken } from "./adapters/telegram/Telegram
 import { isWorking, type ActivityEntry } from "./core/activity.ts";
 import { BotRuntime } from "./core/BotRuntime.ts";
 import { ButtonStore } from "./core/ButtonStore.ts";
+import {
+  MEMORY_LINE_LIMIT,
+  displayPath,
+  memoryDir,
+  memoryInstructions,
+  readMemory,
+  writeMemoryFile,
+  type MemoryFile,
+} from "./core/memory.ts";
 import { DEFAULT_INSTRUCTIONS } from "./core/render.ts";
 import type { ChatAdapter } from "./core/types.ts";
 import { makeLogger } from "./log.ts";
@@ -231,7 +240,10 @@ export class Engine {
       workspaceStrategy: { type: "root" },
       initialMessage: {
         messageId,
-        text: input.instructions?.trim() || DEFAULT_INSTRUCTIONS,
+        text: withMemory(
+          input.instructions?.trim() || DEFAULT_INSTRUCTIONS,
+          memoryDir(project.workspaceRoot),
+        ),
         attachments: [],
       },
     });
@@ -246,6 +258,7 @@ export class Engine {
   }
 
   private async sendInstructions(threadId: string, instructions: string) {
+    const dir = await this.memoryDirForThread(threadId);
     const messageId = MessageId.make(Crypto.randomUUID());
     await this.rememberBridgeMessage(messageId);
     await this.t3.dispatch({
@@ -255,10 +268,45 @@ export class Engine {
       creationSource: "mobile",
       threadId: ThreadId.make(threadId),
       messageId,
-      text: instructions,
+      text: dir === null ? instructions : withMemory(instructions, dir),
       attachments: [],
       dispatchMode: { type: "queue_after_active" },
     });
+  }
+
+  /** The memory folder of the project a thread belongs to; null when T3 no longer has it. */
+  private async memoryDirForThread(threadId: string | null): Promise<string | null> {
+    if (threadId === null) return null;
+    const shell = await this.t3.getShell();
+    const thread = shell.threads.find((candidate) => candidate.id === threadId);
+    const project = shell.projects.find((candidate) => candidate.id === thread?.projectId);
+    return project === undefined ? null : memoryDir(project.workspaceRoot);
+  }
+
+  /** The bot's project memory, for the control panel: the index first, then the files it links. */
+  async memory(botId: string): Promise<{
+    dir: string | null;
+    files: MemoryFile[];
+    lineLimit: number;
+  }> {
+    const bot = this.config.get().bots.find((candidate) => candidate.id === botId);
+    if (bot === undefined) throw new NotFoundError("No such bot");
+    const dir = await this.memoryDirForThread(bot.threadId);
+    return {
+      dir: dir === null ? null : displayPath(dir),
+      files: dir === null ? [] : await readMemory(dir),
+      lineLimit: MEMORY_LINE_LIMIT,
+    };
+  }
+
+  async saveMemory(botId: string, input: { readonly name: string; readonly text: string }) {
+    const bot = this.config.get().bots.find((candidate) => candidate.id === botId);
+    if (bot === undefined) throw new NotFoundError("No such bot");
+    const dir = await this.memoryDirForThread(bot.threadId);
+    if (dir === null) throw new Error("Pick a thread first: memory belongs to its project.");
+    await writeMemoryFile(dir, input.name, input.text);
+    this.log.info(`[${bot.name}] Memory file ${input.name} saved from the control panel`);
+    return this.memory(botId);
   }
 
   private async rememberBridgeMessage(messageId: string) {
@@ -457,6 +505,7 @@ export class Engine {
       threaded: isAgentLayout(bot),
       createFreshThread: () => this.createFreshThread(bot.id),
       switchThread: (threadId) => this.switchThread(bot.id, threadId),
+      memoryDir: () => this.memoryDirForThread(bot.threadId),
     });
     this.bots.set(bot.id, runtime);
     try {
@@ -532,4 +581,9 @@ function describeT3Status(status: T3ConnectionStatus, label: string) {
   if (status.state === "connected") return { state: "connected" as const, label };
   if (status.state === "connecting") return { state: "connecting" as const, label };
   return { state: "disconnected" as const, label, error: status.error };
+}
+
+/** The bot's instructions with where its project memory is and how to use it. */
+function withMemory(instructions: string, dir: string): string {
+  return `${instructions}\n\n${memoryInstructions(dir)}`;
 }

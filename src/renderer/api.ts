@@ -82,6 +82,9 @@ export function makeApi(target: Target) {
     removeBot: (id: string) => call<unknown>("DELETE", `/api/bots/${id}`),
     activity: (id: string) => call<{ entries: ActivityEntry[] }>("GET", `/api/bots/${id}/activity`),
     stop: (id: string) => call<{ stopped: boolean }>("POST", `/api/bots/${id}/stop`),
+    memory: (id: string) => call<Memory>("GET", `/api/bots/${id}/memory`),
+    saveMemory: (id: string, file: { name: string; text: string }) =>
+      call<Memory>("PUT", `/api/bots/${id}/memory`, file),
     newThread: (id: string) =>
       call<{ threadId: string; title: string }>("POST", `/api/bots/${id}/new-thread`),
     updateInfo: () =>
@@ -97,6 +100,13 @@ export function makeApi(target: Target) {
 }
 
 export type Api = ReturnType<typeof makeApi>;
+
+/** A bot's project memory: the folder, its index first, then the files the index links. */
+export interface Memory {
+  readonly dir: string | null;
+  readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>;
+  readonly lineLimit: number;
+}
 
 export interface ModelSelection {
   readonly instanceId: string;

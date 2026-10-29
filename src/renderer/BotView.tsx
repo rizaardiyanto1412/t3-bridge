@@ -1,7 +1,7 @@
-import { ArrowUpRight, Check, CircleAlert, CircleCheck, Pin, Plus, Send, X } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { ArrowUpRight, Brain, Check, CircleAlert, CircleCheck, Pin, Plus, Send, X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 
-import { PLATFORM_NAMES, type Api, type BotStatus, type Status } from "./api.ts";
+import { PLATFORM_NAMES, type Api, type BotStatus, type Memory, type Status } from "./api.ts";
 import {
   botHandle,
   botState,
@@ -89,7 +89,10 @@ export function BotView(props: {
       {bot.lastError && <div className="banner">{bot.lastError}</div>}
 
       <div className="bot-body">
-        <BotSettings api={api} bot={bot} threads={props.threads} reloadThreads={props.reloadThreads} onSaved={props.onChanged} />
+        <div className="main-col">
+          <BotSettings api={api} bot={bot} threads={props.threads} reloadThreads={props.reloadThreads} onSaved={props.onChanged} />
+          <MemoryCard api={api} bot={bot} />
+        </div>
         <aside className="side">
           <div className="card stats">
             <div>
@@ -303,6 +306,140 @@ function Section({ title, desc, last = false, children }: { title: string; desc:
       </div>
       <div className="section-control">{children}</div>
     </div>
+  );
+}
+
+// ── project memory ────────────────────────────────────────────────────────
+
+const NEW_FILE = "\u0000new";
+
+/** Lasting facts about the bot's project, shared by every thread and subagent working on it. */
+function MemoryCard(props: { api: Api; bot: BotStatus }) {
+  const { api, bot } = props;
+  const [memory, setMemory] = useState<Memory | null>(null);
+  const [selected, setSelected] = useState("MEMORY.md");
+  const [newName, setNewName] = useState("");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const load = (next: Memory, name: string) => {
+    setMemory(next);
+    const file = next.files.find((candidate) => candidate.name === name) ?? next.files[0];
+    setSelected(file?.name ?? "MEMORY.md");
+    setText(file?.text ?? "");
+  };
+
+  useEffect(() => {
+    setMemory(null);
+    setMessage(null);
+    void api
+      .memory(bot.id)
+      .then((next) => load(next, "MEMORY.md"))
+      .catch((cause: unknown) => setMessage({ ok: false, text: errorText(cause) }));
+  }, [api, bot.id, bot.threadId]);
+
+  const creating = selected === NEW_FILE;
+  const saved = memory?.files.find((file) => file.name === selected)?.text ?? "";
+  const dirty = creating ? newName.trim() !== "" && text.trim() !== "" : text !== saved;
+  const lines = text.split("\n").filter((line) => line.trim() !== "").length;
+  const name = creating ? `${newName.trim().replace(/\.md$/, "")}.md` : selected;
+
+  const choose = (value: string) => {
+    if (dirty && !confirm("Discard your unsaved changes to this memory file?")) return;
+    setMessage(null);
+    setSelected(value);
+    setNewName("");
+    setText(memory?.files.find((file) => file.name === value)?.text ?? "");
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const next = await api.saveMemory(bot.id, { name, text });
+      load(next, name);
+      setNewName("");
+      setMessage({ ok: true, text: text.trim() === "" && name !== "MEMORY.md" ? `Deleted ${name}` : "Saved" });
+    } catch (cause) {
+      setMessage({ ok: false, text: errorText(cause) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card settings-card">
+      <Section
+        title="Project memory"
+        desc="Lasting facts about this project: access, where things live, decisions. Every thread and subagent on this project gets them. Bots on other projects don't."
+        last
+      >
+        {memory === null ? (
+          <p className="muted">{message?.ok === false ? message.text : "Loading memory…"}</p>
+        ) : memory.dir === null ? (
+          <p className="muted">Pick a thread first. Memory belongs to its project.</p>
+        ) : (
+          <>
+            <SelectBox
+              icon={<Brain size={16} />}
+              title={creating ? "New memory file" : selected}
+              meta={memory.dir}
+              value={selected}
+              onChange={choose}
+            >
+              {memory.files.map((file) => (
+                <option key={file.name} value={file.name}>
+                  {file.name === "MEMORY.md" ? "MEMORY.md (the index)" : file.name}
+                </option>
+              ))}
+              <option value={NEW_FILE}>New file…</option>
+            </SelectBox>
+            {creating && (
+              <input
+                className="input mono"
+                autoFocus
+                placeholder="file-name, e.g. staging-server"
+                value={newName}
+                onChange={(event) => setNewName(event.target.value.replace(/[^\w.-]/g, "-"))}
+              />
+            )}
+            <textarea
+              className="input mono"
+              rows={12}
+              value={text}
+              placeholder={
+                selected === "MEMORY.md"
+                  ? "- paywallproject.com is reached over SSH, not the WordPress MCP"
+                  : "The fact in full. Link it from MEMORY.md so the agent finds it."
+              }
+              onChange={(event) => setText(event.target.value)}
+            />
+            <p className="muted small">
+              {selected === "MEMORY.md" && lines > memory.lineLimit
+                ? `${lines} lines. The agent reads about the first ${memory.lineLimit}; move details into their own files.`
+                : (
+                  <>
+                    In chat, <code>!remember &lt;fact&gt;</code> adds a line and <code>!forget &lt;words&gt;</code> removes it.
+                    Facts the agent marks <code>REMEMBER:</code> are added for you.
+                  </>
+                )}
+              {!creating && selected !== "MEMORY.md" && " Empty the file and save to delete it."}
+            </p>
+            <div className="save-row flush">
+              {message ? (
+                <span className={`eyebrow ${message.ok ? "ok-text" : "error-text"}`}>{message.text}</span>
+              ) : (
+                dirty && <span className="eyebrow">Unsaved changes</span>
+              )}
+              <button className="btn primary" disabled={busy || !dirty} onClick={() => void save()}>
+                {busy ? "Saving…" : "Save memory"}
+              </button>
+            </div>
+          </>
+        )}
+      </Section>
+    </section>
   );
 }
 
