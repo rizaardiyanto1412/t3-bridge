@@ -24,8 +24,8 @@ export interface RenderContext {
   readonly requests: ReadonlyMap<string, OrchestrationV2RuntimeRequest>;
   /** Messages the bridge itself sent; they are not echoed back to chat. */
   readonly sentByBridge: (messageId: string) => boolean;
-  /** An image file on this Mac that the agent referenced by path. */
-  readonly localImage: (path: string) => ImageRef;
+  /** A media file on this Mac that the agent referenced by path. */
+  readonly localFile: (path: string) => ImageRef;
   readonly attachmentImage: (attachment: {
     id: string;
     name: string;
@@ -74,12 +74,12 @@ export function postForTurnItem(
   if ("nodeId" in item && isInsideSubagent(item.nodeId, context.nodes)) return null;
   switch (item.type) {
     case "assistant_message": {
-      const local = extractLocalImages(withoutRememberLines(item.text));
+      const local = extractLocalFiles(withoutRememberLines(item.text));
       const images = [
         ...(item.attachments ?? [])
           .filter((attachment) => attachment.type === "image")
           .map((attachment) => context.attachmentImage(attachment)),
-        ...local.paths.map((path) => context.localImage(path)),
+        ...local.paths.map((path) => context.localFile(path)),
       ];
       if (local.markdown.trim().length === 0 && images.length === 0) return null;
       return {
@@ -243,24 +243,50 @@ function firstLine(text: string) {
   return line.length > 80 ? `${line.slice(0, 79)}…` : line || "Subagent";
 }
 
-const LOCAL_IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp)$/i;
+/** Files the agent links by path that are uploaded to chat, by extension. */
+export const LOCAL_FILE_MIME: Readonly<Record<string, string>> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".pdf": "application/pdf",
+};
+
+function localFileMime(path: string): string | undefined {
+  const extension = /\.[^./]+$/.exec(path)?.[0].toLowerCase();
+  return extension === undefined ? undefined : LOCAL_FILE_MIME[extension];
+}
 
 /**
- * Agents show screenshots as markdown images pointing at a file on the host, e.g.
- * `![shot](/Users/me/.t3/userdata/browser-artifacts/shot.png)`. T3 serves those itself; chat
- * apps would only see the path. Such images are taken out of the text to be uploaded as
- * files. A half-streamed image at the end of the text is held back until it is complete.
+ * Agents show screenshots and videos as markdown images or links pointing at a file on the
+ * host, e.g. `![shot](/Users/me/.t3/userdata/browser-artifacts/shot.png)` or
+ * `[Demo](/tmp/demo.mp4)`. T3 serves those itself; chat apps would only see the path. Such
+ * files are taken out of the text to be uploaded (a link keeps its label). Links to other
+ * files, like source code, stay as they are. A half-streamed image or local link at the end
+ * of the text is held back until it is complete.
  */
-export function extractLocalImages(markdown: string): { markdown: string; paths: string[] } {
+export function extractLocalFiles(markdown: string): { markdown: string; paths: string[] } {
   const paths: string[] = [];
   const text = markdown
-    .replace(/!\[[^\]]*\]\(\s*<?((?:file:\/\/)?\/[^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g, (match, target: string) => {
-      const path = decodeURIComponent(target.replace(/^file:\/\//, "").split(/[?#]/)[0]!);
-      if (!LOCAL_IMAGE_EXTENSIONS.test(path)) return match;
-      if (!paths.includes(path)) paths.push(path);
-      return "";
-    })
-    .replace(/!\[[^\]]*(?:\]\([^)]*)?$/, "")
+    .replace(
+      /(!?)\[([^\]]*)\]\(\s*<?((?:file:\/\/)?\/[^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g,
+      (match, bang: string, label: string, target: string) => {
+        const path = decodeURIComponent(target.replace(/^file:\/\//, "").split(/[?#]/)[0]!);
+        if (localFileMime(path) === undefined) return match;
+        if (!paths.includes(path)) paths.push(path);
+        return bang ? "" : label;
+      },
+    )
+    .replace(/!\[[^\]]*(?:\]\([^)]*)?$|\[[^\]]*\]\(\s*<?(?:file:\/\/)?\/[^)]*$/, "")
     .replace(/\n{3,}/g, "\n\n");
   return { markdown: text, paths };
 }
@@ -282,4 +308,4 @@ export const DEFAULT_INSTRUCTIONS = `You are the orchestrator for this project. 
 - When subagents finish, reply with a short summary: what changed, test status, and anything that needs the user's decision.
 - You may answer quick questions directly only when no code needs to be read or changed.
 - Keep replies concise and chat-friendly. Use short paragraphs and lists; avoid wide tables.
-- Images you show (by file path or attachment) and pages you render with html_render reach the user in chat as files, so do not tell them to open T3 to see them.`;
+- Images, videos, audio and PDFs you show or link by file path, image attachments, and pages you render with html_render reach the user in chat as files, so do not tell them to open T3 to see them.`;
