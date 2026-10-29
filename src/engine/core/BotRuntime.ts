@@ -26,6 +26,7 @@ import type { Logger } from "../log.ts";
 import { readJson, writeJsonAtomic, type BotConfig } from "../store.ts";
 import type { T3Client } from "../t3/T3Client.ts";
 import {
+  LOCAL_FILE_MIME,
   ORCHESTRATOR_REMINDER,
   approvalPost,
   postFingerprint,
@@ -333,9 +334,9 @@ export class BotRuntime {
       requests: model.requests,
       sentByBridge: (messageId) =>
         this.state.sentMessages[messageId] !== undefined || this.options.isBridgeMessage(messageId),
-      localImage: (path) => ({
+      localFile: (path) => ({
         name: Path.basename(path),
-        load: () => readLocalImage(path),
+        load: () => readLocalFile(path),
       }),
       attachmentImage: (attachment) => ({
         name: attachment.name,
@@ -1092,20 +1093,13 @@ export function toMillis(value: unknown): number {
     : Number.NaN;
 }
 
-const IMAGE_MIME: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
-
-/** The bridge runs on the same Mac as T3, so an image the agent saved there is read directly. */
-async function readLocalImage(path: string): Promise<{ bytes: Buffer; mimeType: string }> {
-  const mimeType = IMAGE_MIME[Path.extname(path).toLowerCase()];
-  if (mimeType === undefined) throw new Error(`${path} is not an image`);
+/** The bridge runs on the same Mac as T3, so a file the agent saved there is read directly. */
+async function readLocalFile(path: string): Promise<{ bytes: Buffer; mimeType: string }> {
+  const mimeType = LOCAL_FILE_MIME[Path.extname(path).toLowerCase()];
+  if (mimeType === undefined) throw new Error(`${path} is not a media file`);
+  const limit = mimeType.startsWith("image/") ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
   const stat = await FS.stat(path);
-  if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES) throw new Error(`${path} is missing or too large`);
+  if (!stat.isFile() || stat.size > limit) throw new Error(`${path} is missing or too large`);
   return { bytes: await FS.readFile(path), mimeType };
 }
 

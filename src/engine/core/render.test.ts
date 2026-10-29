@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { requestTitle, standaloneHtml } from "./BotRuntime.ts";
 
-import { extractLocalImages, postForTurnItem, runStatus, type RenderContext } from "./render.ts";
+import { extractLocalFiles, postForTurnItem, runStatus, type RenderContext } from "./render.ts";
 
 const node = (
   id: string,
@@ -25,7 +25,7 @@ function context(overrides: Partial<RenderContext> = {}): RenderContext {
     ]),
     requests: new Map(),
     sentByBridge: () => false,
-    localImage: (path) => ({ name: path, load: async () => ({ bytes: Buffer.alloc(0), mimeType: "image/png" }) }),
+    localFile: (path) => ({ name: path, load: async () => ({ bytes: Buffer.alloc(0), mimeType: "image/png" }) }),
     attachmentImage: (attachment) => ({
       name: attachment.name,
       load: async () => ({ bytes: Buffer.alloc(0), mimeType: attachment.mimeType }),
@@ -160,18 +160,27 @@ describe("requestTitle", () => {
   });
 });
 
-describe("extractLocalImages", () => {
+describe("extractLocalFiles", () => {
   it("takes screenshots saved on the host out of the text, to upload them", () => {
-    const result = extractLocalImages(
+    const result = extractLocalFiles(
       "Here it is.\n\n![shot](/Users/me/.t3/userdata/browser-artifacts/a%20b.png)\n\nDone. ![web](https://x.dev/a.png)",
     );
     expect(result.paths).toEqual(["/Users/me/.t3/userdata/browser-artifacts/a b.png"]);
     expect(result.markdown).toBe("Here it is.\n\nDone. ![web](https://x.dev/a.png)");
   });
 
-  it("leaves non-image paths alone and holds back a half-streamed image", () => {
-    expect(extractLocalImages("![log](/tmp/run.log)").paths).toEqual([]);
-    expect(extractLocalImages("Look: ![shot](/Users/me/sh").markdown).toBe("Look: ");
+  it("leaves other paths alone and holds back a half-streamed image or local link", () => {
+    expect(extractLocalFiles("![log](/tmp/run.log)").paths).toEqual([]);
+    expect(extractLocalFiles("See [Engine.ts](/src/Engine.ts:12)").markdown).toBe("See [Engine.ts](/src/Engine.ts:12)");
+    expect(extractLocalFiles("Look: ![shot](/Users/me/sh").markdown).toBe("Look: ");
+    expect(extractLocalFiles("Watch [Video](/tmp/explainer-vi").markdown).toBe("Watch ");
+    expect(extractLocalFiles("Docs [here](https://x.de").markdown).toBe("Docs [here](https://x.de");
+  });
+
+  it("uploads a video the agent links by path and keeps the link's label", () => {
+    const result = extractLocalFiles("It's ready: [Explainer video](/tmp/explainer-video/explainer.mp4)\n\n![](/tmp/a.MOV)");
+    expect(result.paths).toEqual(["/tmp/explainer-video/explainer.mp4", "/tmp/a.MOV"]);
+    expect(result.markdown).toBe("It's ready: Explainer video\n\n");
   });
 
   it("puts the images on the reply", () => {
