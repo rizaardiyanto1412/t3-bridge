@@ -1688,6 +1688,17 @@ textarea.input:focus {
   gap: 20px;
 }
 
+.main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.save-row.flush {
+  padding-bottom: 0;
+}
+
 .settings-card {
   display: flex;
   flex-direction: column;

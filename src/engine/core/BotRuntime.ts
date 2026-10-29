@@ -46,6 +46,7 @@ import {
   type ActivityEntry,
 } from "./activity.ts";
 import { truncate } from "./markdown.ts";
+import { forgetFact, rememberedFacts, rememberFact } from "./memory.ts";
 import {
   PlatformError,
   type AdapterStatus,
@@ -99,6 +100,8 @@ interface BotState {
   threadTitles?: Record<string, string>;
   /** The latest chat requests and what came of them, newest last. */
   activity?: ActivityEntry[];
+  /** Replies and subagent results whose REMEMBER: lines were already saved to memory. */
+  remembered?: string[];
 }
 
 const MAX_RECORDS = 1500;
@@ -132,6 +135,8 @@ export interface BotRuntimeOptions {
   readonly createFreshThread: () => Promise<{ threadId: string; title: string }>;
   /** Points the bot at another T3 thread; this restarts the bot. */
   readonly switchThread: (threadId: string) => Promise<void>;
+  /** The memory folder of the thread's project; null when T3 no longer has the project. */
+  readonly memoryDir: () => Promise<string | null>;
 }
 
 interface ThreadModel {
@@ -377,12 +382,21 @@ export class BotRuntime {
     // The agent's acknowledgement of the bridge's own setup instructions stays in T3.
     const run = item.runId === null ? undefined : this.runs.get(item.runId);
     if (run !== undefined && this.options.isBridgeMessage(run.userMessageId)) return;
+    if (item.type === "assistant_message" && !item.streaming)
+      void this.saveFacts(`a:${item.id}`, item.text, "orchestrator", item.runId);
     const keyed = postForTurnItem(item, this.renderContext(this.bot.threadId!, this.main));
     if (keyed !== null) this.enqueue(keyed, item.runId);
   }
 
   private trackSubagent(subagent: OrchestrationV2Subagent, fromSnapshot: boolean) {
     this.subagents.set(subagent.id, subagent);
+    if (subagent.status === "completed" && subagent.result && this.isNew(subagent.updatedAt))
+      void this.saveFacts(
+        `s:${subagent.id}`,
+        subagent.result,
+        `subagent "${truncate(subagentTask(subagent).title, 60)}"`,
+        subagent.runId,
+      );
     // In agent layout all subagents of one request share a single plan in its thread.
     const grouped = this.options.threaded && subagent.runId !== null;
     const key = grouped ? `g:${subagent.runId}` : `s:${subagent.id}`;
@@ -716,6 +730,11 @@ export class BotRuntime {
       await this.startFreshThread(message);
       return;
     }
+    const memoryCommand = /^[!/](remember|forget)(?:@\S+)?(?:\s+([\s\S]*))?$/i.exec(text);
+    if (memoryCommand !== null) {
+      await this.memoryCommand(message, memoryCommand[1]!.toLowerCase(), memoryCommand[2]?.trim() ?? "");
+      return;
+    }
 
     const answered = await this.answerFromReply(message, text);
     if (answered) return;
@@ -742,7 +761,7 @@ export class BotRuntime {
         ...(title === null
           ? []
           : [`${message.replyTo === null ? "new thread" : "thread"} "${title}"`]),
-        ...(this.bot.reminder ? ["delegate via subagents"] : []),
+        ...(this.bot.reminder ? ["delegate via subagents, brief them from project memory"] : []),
         ...(this.options.adapter.mentionHint ? [this.options.adapter.mentionHint] : []),
       ].join(" · ")}]\n`;
       // Recorded before dispatching: the run's first events can arrive before dispatch returns.
@@ -843,6 +862,65 @@ export class BotRuntime {
       files: messages.flatMap((earlier) => earlier.files).slice(-MAX_CONTEXT_FILES),
       opening: messages[0]!.text,
     };
+  }
+
+  // ── project memory ──────────────────────────────────────────────────────
+
+  /** `!remember <fact>` saves a fact as said; `!forget <words>` removes the lines that contain them. */
+  private async memoryCommand(message: InboundMessage, command: string, argument: string) {
+    const { adapter } = this.options;
+    if (argument.length === 0) {
+      await adapter.reply(message, `Usage: \`!${command} <${command === "remember" ? "fact" : "words in the fact"}>\``);
+      return;
+    }
+    try {
+      const dir = await this.options.memoryDir();
+      if (dir === null) throw new Error("this bot's thread has no project in T3");
+      if (command === "remember") {
+        const saved = await rememberFact(dir, argument, message.userName);
+        await adapter.reply(message, saved ? `🧠 Saved to project memory: ${argument}` : "🧠 Project memory already has that.");
+      } else {
+        const removed = await forgetFact(dir, argument);
+        await adapter.reply(
+          message,
+          removed.length === 0
+            ? `🧠 No memory line contains "${argument}".`
+            : `🧠 Removed from project memory:\n${removed.map((line) => `> ${line.replace(/^\s*-\s*/, "")}`).join("\n")}`,
+        );
+      }
+    } catch (error) {
+      await adapter.reply(message, `⚠️ Could not update project memory: ${errorText(error)}`);
+    }
+  }
+
+  /**
+   * Saves the facts an agent marked with REMEMBER: in a finished reply or subagent result,
+   * and says so in the request's chat thread. Each reply or result is read once.
+   */
+  private async saveFacts(id: string, text: string, source: string, runId: string | null) {
+    const facts = rememberedFacts(text);
+    if (facts.length === 0 || this.state.remembered?.includes(id)) return;
+    this.state.remembered = [...(this.state.remembered ?? []), id].slice(-MAX_RECORDS);
+    this.scheduleSave();
+    try {
+      const dir = await this.options.memoryDir();
+      if (dir === null) return;
+      const saved: string[] = [];
+      for (const fact of facts) if (await rememberFact(dir, fact, source)) saved.push(fact);
+      if (saved.length === 0) return;
+      this.enqueue(
+        {
+          key: `m:${id}`,
+          post: {
+            kind: "notice",
+            markdown: `🧠 Saved to project memory:\n${saved.map((fact) => `• ${fact}`).join("\n")}\nSend \`!forget <words>\` to remove one.`,
+          },
+        },
+        runId,
+      );
+    } catch (error) {
+      this.options.log.warn(`[${this.bot.name}] saving to project memory failed`, error);
+    }
   }
 
   /** `!new`: a fresh orchestrator thread when the current one has grown long. */
