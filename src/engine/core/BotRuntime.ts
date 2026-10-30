@@ -389,7 +389,7 @@ export class BotRuntime {
     const run = item.runId === null ? undefined : this.runs.get(item.runId);
     if (run !== undefined && this.options.isBridgeMessage(run.userMessageId)) return;
     if (item.type === "assistant_message" && !item.streaming)
-      void this.saveFacts(`a:${item.id}`, item.text, "orchestrator", item.runId);
+      void this.saveFacts(`a:${item.id}`, item.text, "orchestrator");
     const keyed = postForTurnItem(item, this.renderContext(this.bot.threadId!, this.main));
     if (keyed === null) {
       this.heldReplies.delete(item.id);
@@ -467,7 +467,6 @@ export class BotRuntime {
         `s:${subagent.id}`,
         subagent.result,
         `subagent "${truncate(subagentTask(subagent).title, 60)}"`,
-        subagent.runId,
       );
     // In agent layout all subagents of one request, including those its wake-ups start,
     // share a single plan in its thread.
@@ -973,10 +972,10 @@ export class BotRuntime {
   }
 
   /**
-   * Saves the facts an agent marked with REMEMBER: in a finished reply or subagent result,
-   * and says so in the request's chat thread. Each reply or result is read once.
+   * Saves the facts an agent marked with REMEMBER: in a finished reply or subagent result.
+   * Chat is not told; the bot's page shows the memory. Each reply or result is read once.
    */
-  private async saveFacts(id: string, text: string, source: string, runId: string | null) {
+  private async saveFacts(id: string, text: string, source: string) {
     const facts = rememberedFacts(text);
     if (facts.length === 0 || this.state.remembered?.includes(id)) return;
     this.state.remembered = [...(this.state.remembered ?? []), id].slice(-MAX_RECORDS);
@@ -984,19 +983,7 @@ export class BotRuntime {
     try {
       const dir = await this.options.memoryDir();
       if (dir === null) return;
-      const saved: string[] = [];
-      for (const fact of facts) if (await rememberFact(dir, fact, source)) saved.push(fact);
-      if (saved.length === 0) return;
-      this.enqueue(
-        {
-          key: `m:${id}`,
-          post: {
-            kind: "notice",
-            markdown: `🧠 Saved to project memory:\n${saved.map((fact) => `• ${fact}`).join("\n")}\nSend \`!forget <words>\` to remove one.`,
-          },
-        },
-        runId,
-      );
+      for (const fact of facts) await rememberFact(dir, fact, source);
     } catch (error) {
       this.options.log.warn(`[${this.bot.name}] saving to project memory failed`, error);
     }
