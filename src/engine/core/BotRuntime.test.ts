@@ -207,9 +207,8 @@ describe("BotRuntime project memory", () => {
     await runtime.stop();
   });
 
-  it("saves a finished subagent's REMEMBER: lines once and says so in chat", async () => {
+  it("saves a finished subagent's REMEMBER: lines once without posting to chat", async () => {
     const { runtime, posts, memoryDir, feed } = await setup();
-    // The notice goes to the thread someone last wrote in.
     await runtime.handleMessage(direct("Reorder the footer"));
     const subagent = {
       id: "sub-1",
@@ -233,9 +232,7 @@ describe("BotRuntime project memory", () => {
       expect.stringMatching(/^- The footer is Code Snippets row 17 _\(subagent "Find the footer", /),
       expect.stringMatching(/^- Purge with wp bs_cache purge_cache _\(subagent "Find the footer", /),
     ]);
-    const notices = posts.filter((post) => post.kind === "notice");
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({ markdown: expect.stringContaining("• The footer is Code Snippets row 17") });
+    expect(posts.filter((post) => post.kind === "notice")).toEqual([]);
     await runtime.stop();
   });
 });

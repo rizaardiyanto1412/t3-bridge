@@ -164,7 +164,7 @@ bot's are one copy.
   matter into every subagent brief, and to ask subagents to report new facts. After updating,
   choose **Send the instructions to the thread now** on each bot's page once.
 - An agent line starting with `REMEMBER:`, in the orchestrator's reply or a subagent's report,
-  is saved to memory. Chat shows a 🧠 note instead of the line.
+  is saved to memory. The line is left out of chat, and no note is posted there.
 - `!remember <fact>` saves a fact as you said it; `!forget <words>` removes the lines that
   contain those words. Both work in Slack, Discord and Telegram.
 - **Project memory** on the bot's page shows the index (`MEMORY.md`) and the files it links.
