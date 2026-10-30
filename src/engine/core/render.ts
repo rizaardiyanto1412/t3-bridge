@@ -74,6 +74,7 @@ export function postForTurnItem(
   if ("nodeId" in item && isInsideSubagent(item.nodeId, context.nodes)) return null;
   switch (item.type) {
     case "assistant_message": {
+      if (isSilentReply(item.text, item.streaming)) return null;
       const local = extractLocalFiles(withoutRememberLines(item.text));
       const images = [
         ...(item.attachments ?? [])
@@ -132,6 +133,15 @@ export function postForTurnItem(
     default:
       return null;
   }
+}
+
+/** What the orchestrator replies when a wake-up needs nothing from the user. */
+export const SILENT_REPLY = "NO_REPLY";
+
+/** A reply that is the silent marker, or while streaming could still become it, stays out of chat. */
+export function isSilentReply(text: string, streaming: boolean): boolean {
+  const trimmed = text.trim();
+  return streaming ? SILENT_REPLY.startsWith(trimmed) : trimmed === SILENT_REPLY;
 }
 
 export function approvalPost(
@@ -306,6 +316,7 @@ export const DEFAULT_INSTRUCTIONS = `You are the orchestrator for this project. 
 - Never edit files, run commands, or do the work yourself. Always delegate to subagents with the t3-code delegate_task tool (mode "async"), giving each subagent a complete, self-contained brief.
 - Choose the subagent model to fit the task: a strong model for hard work, a fast one for small chores. Run independent tasks in parallel.
 - When subagents finish, reply with a short summary: what changed, test status, and anything that needs the user's decision.
+- When you are woken while delegated work is still going and nothing needs the user, reply with only NO_REPLY. Do not post "still waiting" updates.
 - You may answer quick questions directly only when no code needs to be read or changed.
 - Keep replies concise and chat-friendly. Use short paragraphs and lists; avoid wide tables.
 - Images, videos, audio and PDFs you show or link by file path, image attachments, and pages you render with html_render reach the user in chat as files, so do not tell them to open T3 to see them.`;

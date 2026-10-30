@@ -28,6 +28,7 @@ import type { T3Client } from "../t3/T3Client.ts";
 import {
   LOCAL_FILE_MIME,
   ORCHESTRATOR_REMINDER,
+  SILENT_REPLY,
   approvalPost,
   postFingerprint,
   postForTurnItem,
@@ -103,6 +104,8 @@ interface BotState {
   activity?: ActivityEntry[];
   /** Replies and subagent results whose REMEMBER: lines were already saved to memory. */
   remembered?: string[];
+  /** Wake-up replies shown in their request's status message instead of posted on their own. */
+  statusReplies?: string[];
 }
 
 const MAX_RECORDS = 1500;
@@ -169,6 +172,8 @@ export class BotRuntime {
   private readonly desired = new Map<string, { post: OutboundPost; runId: string | null }>();
   /** Wake-up messages T3 sends when delegated work finishes, mapped to the run that delegated it. */
   private readonly wakeParents = new Map<string, string>();
+  /** Wake-up replies held until their run ends, when it is known whether work is still going. */
+  private readonly heldReplies = new Map<string, OrchestrationV2TurnItem>();
   private readonly lastEditAt = new Map<string, number>();
   private readonly attempts = new Map<string, number>();
   /** The in-memory model is rebuilt from a full snapshot once per process before resuming by sequence. */
@@ -386,7 +391,73 @@ export class BotRuntime {
     if (item.type === "assistant_message" && !item.streaming)
       void this.saveFacts(`a:${item.id}`, item.text, "orchestrator", item.runId);
     const keyed = postForTurnItem(item, this.renderContext(this.bot.threadId!, this.main));
-    if (keyed !== null) this.enqueue(keyed, item.runId);
+    if (keyed === null) {
+      this.heldReplies.delete(item.id);
+      return;
+    }
+    if (item.type === "assistant_message" && run !== undefined && this.isWakeRun(run)) {
+      this.routeWakeReply(item, keyed, run);
+      return;
+    }
+    this.enqueue(keyed, item.runId);
+  }
+
+  private isWakeRun(run: OrchestrationV2Run) {
+    return this.wakeParents.has(run.userMessageId);
+  }
+
+  /**
+   * T3 wakes the orchestrator each time delegated work changes. While other work of the same
+   * request is still going, its replies edit one status message in the thread instead of
+   * adding (and notifying) a new one; the reply after all work is done is posted as usual.
+   */
+  private routeWakeReply(
+    item: Extract<OrchestrationV2TurnItem, { type: "assistant_message" }>,
+    keyed: KeyedPost,
+    run: OrchestrationV2Run,
+  ) {
+    if (item.streaming || runStatus(run.status) === "running" || runStatus(run.status) === null) {
+      this.heldReplies.set(item.id, item);
+      return;
+    }
+    this.heldReplies.delete(item.id);
+    const posted = this.state.posts[keyed.key] !== undefined;
+    const quiet =
+      !posted &&
+      (this.state.statusReplies?.includes(item.id) ||
+        (keyed.post.kind === "assistant" &&
+          keyed.post.images.length === 0 &&
+          this.requestBusy(run.id)));
+    if (!quiet) {
+      this.enqueue(keyed, item.runId);
+      return;
+    }
+    if (!this.state.statusReplies?.includes(item.id))
+      this.state.statusReplies = [...(this.state.statusReplies ?? []), item.id].slice(-MAX_RECORDS);
+    this.enqueue({ key: `w:${this.rootRun(run.id)}`, post: keyed.post }, item.runId);
+  }
+
+  /** The run a chat request started, following wake-up runs back to the run that delegated. */
+  private rootRun(runId: string): string {
+    let current = runId;
+    for (let depth = 0; depth < 16; depth += 1) {
+      const run = this.runs.get(current);
+      const parent = run === undefined ? undefined : this.wakeParents.get(run.userMessageId);
+      if (parent === undefined) return current;
+      current = parent;
+    }
+    return current;
+  }
+
+  /** Whether any subagent started for the same request as this run is still working. */
+  private requestBusy(runId: string) {
+    const root = this.rootRun(runId);
+    return [...this.subagents.values()].some(
+      (subagent) =>
+        subagent.runId !== null &&
+        ["pending", "running", "waiting"].includes(subagent.status) &&
+        this.rootRun(subagent.runId) === root,
+    );
   }
 
   private trackSubagent(subagent: OrchestrationV2Subagent, fromSnapshot: boolean) {
@@ -398,9 +469,11 @@ export class BotRuntime {
         `subagent "${truncate(subagentTask(subagent).title, 60)}"`,
         subagent.runId,
       );
-    // In agent layout all subagents of one request share a single plan in its thread.
-    const grouped = this.options.threaded && subagent.runId !== null;
-    const key = grouped ? `g:${subagent.runId}` : `s:${subagent.id}`;
+    // In agent layout all subagents of one request, including those its wake-ups start,
+    // share a single plan in its thread.
+    const root = subagent.runId === null ? null : this.rootRun(subagent.runId);
+    const grouped = this.options.threaded && root !== null;
+    const key = grouped ? `g:${root}` : `s:${subagent.id}`;
     const hidden = isInsideNativeSubagent(subagent, this.main.nodes);
     if (
       !hidden &&
@@ -412,7 +485,8 @@ export class BotRuntime {
             tasks: [...this.subagents.values()]
               .filter(
                 (candidate) =>
-                  candidate.runId === subagent.runId &&
+                  candidate.runId !== null &&
+                  this.rootRun(candidate.runId) === root &&
                   !isInsideNativeSubagent(candidate, this.main.nodes),
               )
               .map(subagentTask),
@@ -492,6 +566,9 @@ export class BotRuntime {
   private applyRun(run: OrchestrationV2Run) {
     this.runs.set(run.id, run);
     const status = runStatus(run.status);
+    if (status !== null && status !== "running")
+      for (const held of [...this.heldReplies.values()])
+        if (held.runId === run.id) this.renderMainItem(held, false);
     if (status !== null) this.updateActivity(run.id, (entry) => applyRunStatus(entry, status));
     const sent = this.state.sentMessages[run.userMessageId];
     if (sent === undefined) return;
@@ -763,6 +840,7 @@ export class BotRuntime {
           ? []
           : [`${message.replyTo === null ? "new thread" : "thread"} "${title}"`]),
         ...(this.bot.reminder ? ["delegate via subagents, brief them from project memory"] : []),
+        `on wake-ups that need nothing from the user, reply only ${SILENT_REPLY}`,
         ...(this.options.adapter.mentionHint ? [this.options.adapter.mentionHint] : []),
       ].join(" · ")}]\n`;
       // Recorded before dispatching: the run's first events can arrive before dispatch returns.

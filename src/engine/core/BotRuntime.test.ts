@@ -23,6 +23,8 @@ async function setup() {
   const uploaded: string[] = [];
   const replies: string[] = [];
   const posts: OutboundPost[] = [];
+  const upserts: Array<{ post: OutboundPost; edit: boolean }> = [];
+  let postCount = 0;
   let feed: ((item: unknown) => Promise<void>) | null = null;
   const t3 = {
     subscribeThread: (input: { onItem: (item: unknown) => Promise<void> }) => {
@@ -43,9 +45,11 @@ async function setup() {
     mentionHint: "write @Name to notify someone",
     start: async () => {},
     stop: async () => {},
-    upsert: async (_conversation, post) => {
+    upsert: async (_conversation, post, existing) => {
       posts.push(post);
-      return { ts: "posted" };
+      upserts.push({ post, edit: existing !== null });
+      postCount += 1;
+      return existing ?? { ts: `posted-${postCount}` };
     },
     setRunStatus: async () => {},
     reply: async (_message, text) => {
@@ -78,7 +82,7 @@ async function setup() {
     memoryDir: async () => memoryDir,
   });
   await runtime.start();
-  return { runtime, dispatched, uploaded, replies, posts, memoryDir, feed: (item: unknown) => feed!(item) };
+  return { runtime, dispatched, uploaded, replies, posts, upserts, memoryDir, feed: (item: unknown) => feed!(item) };
 }
 
 const alert: EarlierMessage = {
@@ -232,6 +236,111 @@ describe("BotRuntime project memory", () => {
     const notices = posts.filter((post) => post.kind === "notice");
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({ markdown: expect.stringContaining("• The footer is Code Snippets row 17") });
+    await runtime.stop();
+  });
+});
+
+describe("BotRuntime wake-ups", () => {
+  const later = (ms: number) => new Date(Date.now() + ms).toISOString();
+  let sequence = 10;
+  const event = (type: string, payload: unknown) => ({
+    kind: "event",
+    sequence: (sequence += 1),
+    event: { type, payload },
+  });
+  const run = (id: string, userMessageId: string, status: string) =>
+    event("run.updated", { id, userMessageId, status });
+  const wake = (id: string, parentRunId: string) =>
+    event("message.updated", {
+      id,
+      delegatedCompletion: { parentRunId, generation: 1, taskIds: [] },
+    });
+  const reply = (id: string, runId: string, text: string, streaming = false) =>
+    event("turn-item.updated", {
+      type: "assistant_message",
+      id,
+      runId,
+      nodeId: null,
+      text,
+      streaming,
+      updatedAt: later(1000),
+    });
+  const subagent = (id: string, runId: string, status: string) =>
+    event("subagent.updated", {
+      id,
+      runId,
+      parentNodeId: "node-1",
+      childThreadId: null,
+      title: id,
+      prompt: id,
+      model: "claude-opus-5-5",
+      status,
+      progress: null,
+      result: status === "completed" ? "Done." : null,
+      updatedAt: later(1000),
+    });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+  it("edits one status message while work runs, then posts the final summary", async () => {
+    const { runtime, upserts, feed } = await setup();
+    await runtime.handleMessage(direct("Build the report email"));
+    await feed(run("run-root", "m-root", "running"));
+    await feed(subagent("build", "run-root", "running"));
+    await feed(reply("a-root", "run-root", "Building it now."));
+    await feed(run("run-root", "m-root", "completed"));
+
+    // Wake-up 1: work still going, a new subagent started; the reply waits for the run to end.
+    await feed(wake("m-wake-1", "run-root"));
+    await feed(run("run-wake-1", "m-wake-1", "running"));
+    await feed(subagent("e2e", "run-wake-1", "running"));
+    await feed(reply("a-wake-1", "run-wake-1", "E2E is running."));
+    await settle();
+    expect(upserts.some(({ post }) => post.kind === "assistant" && post.markdown === "E2E is running.")).toBe(false);
+    await feed(run("run-wake-1", "m-wake-1", "completed"));
+    await settle();
+
+    // Wake-up 2: still going, and the agent stays silent.
+    await feed(wake("m-wake-2", "run-root"));
+    await feed(run("run-wake-2", "m-wake-2", "running"));
+    await feed(reply("a-wake-2", "run-wake-2", "NO_", true));
+    await feed(reply("a-wake-2", "run-wake-2", "NO_REPLY"));
+    await feed(run("run-wake-2", "m-wake-2", "completed"));
+
+    // Wake-up 3: still going, so the status message is edited.
+    await feed(wake("m-wake-3", "run-root"));
+    await feed(run("run-wake-3", "m-wake-3", "running"));
+    await feed(reply("a-wake-3", "run-wake-3", "E2E passed, full suite running."));
+    await feed(run("run-wake-3", "m-wake-3", "completed"));
+
+    // Wake-up 4: all done; the summary is a new message.
+    await feed(subagent("build", "run-root", "completed"));
+    await feed(subagent("e2e", "run-wake-1", "completed"));
+    await feed(wake("m-wake-4", "run-root"));
+    await feed(run("run-wake-4", "m-wake-4", "running"));
+    await feed(reply("a-wake-4", "run-wake-4", "Done. PR is open."));
+    await feed(run("run-wake-4", "m-wake-4", "completed"));
+    await settle();
+
+    const texts = upserts
+      .filter(({ post }) => post.kind === "assistant")
+      .map(({ post, edit }) => `${edit ? "edit" : "new"}: ${(post as { markdown: string }).markdown}`);
+    expect(texts).toEqual([
+      "new: Building it now.",
+      "new: E2E is running.",
+      "edit: E2E passed, full suite running.",
+      "new: Done. PR is open.",
+    ]);
+    expect(texts.join("\n")).not.toContain("NO_");
+
+    // Both subagents share one card, the one the request started.
+    const cards = upserts.filter(({ post }) => post.kind === "subagents");
+    expect(cards.filter(({ edit }) => !edit)).toHaveLength(1);
+    expect(cards.at(-1)!.post).toMatchObject({
+      tasks: [
+        { id: "build", status: "completed" },
+        { id: "e2e", status: "completed" },
+      ],
+    });
     await runtime.stop();
   });
 });

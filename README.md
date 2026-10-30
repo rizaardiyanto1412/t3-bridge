@@ -142,7 +142,11 @@ continue that request; start a new message for a new one.
 - Messages typed in T3 itself also show up in Slack, marked _Sent from T3_.
 - Every message reaches T3 tagged with its thread, e.g. `[Slack · Riza · thread "Check Pro PRs"]`,
   so a reply like "yes, merge it" arrives with its subject. Slack's thread list uses the same titles.
-- When one request starts several subagents, they share one plan card in its thread.
+- When one request starts several subagents, they share one plan card in its thread, including
+  subagents the orchestrator starts later for the same request.
+- Progress notes the orchestrator writes while a request's subagents are still running edit one
+  status message in the thread, so you are notified once, when the work is done. When it has
+  nothing to say it replies `NO_REPLY`, which is never posted.
 - Send `!new` (or use **New thread** on the bot's card) to start a fresh orchestrator thread with
   the same project, model and instructions when the current one has grown long.
 
