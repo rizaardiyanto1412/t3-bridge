@@ -191,3 +191,20 @@ describe("extractLocalFiles", () => {
     expect(keyed?.post).toMatchObject({ kind: "assistant", markdown: "", images: [{ name: "/tmp/s.png" }] });
   });
 });
+
+describe("silent replies", () => {
+  const reply = (text: string, streaming: boolean) =>
+    postForTurnItem(item({ type: "assistant_message", text, streaming }), context());
+
+  it("keeps NO_REPLY out of chat, also while it streams", () => {
+    expect(reply("NO_REPLY", false)).toBeNull();
+    expect(reply(" NO_REPLY\n", false)).toBeNull();
+    expect(reply("NO_", true)).toBeNull();
+  });
+
+  it("posts replies that only start like it", () => {
+    expect(reply("NO", false)).not.toBeNull();
+    expect(reply("NO_REPLY needed, but here is the status.", false)).not.toBeNull();
+    expect(reply("Nope", true)).not.toBeNull();
+  });
+});
