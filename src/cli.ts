@@ -1,4 +1,5 @@
 import * as FS from "node:fs";
+import * as OS from "node:os";
 import * as Path from "node:path";
 import { parseArgs } from "node:util";
 
@@ -14,7 +15,7 @@ const HELP = `T3 Bridge ${BRIDGE_VERSION}: chat with a T3 Code thread from Slack
 Usage: npx t3-bridge [command]
 
   run          Run in this terminal (the default)
-  install      Run in the background on this Mac, starting at login
+  install      Run in the background, starting at login (macOS) or boot (Linux)
   uninstall    Stop the background service; bots and settings are kept
   link         Print the control panel link
   status       Show whether T3 Code and the bots are connected
@@ -62,7 +63,7 @@ function printLinks(config: Pick<BridgeConfig, "controlPort" | "controlToken">) 
   console.log(`\nControl panel (keep this link private, it works like a password):\n  ${first}`);
   for (const link of rest) console.log(`  ${link}`);
   if (tailnetAddresses().length === 0) {
-    console.log("\nTo open it from other devices, install Tailscale on this Mac and run `npx t3-bridge link`.");
+    console.log("\nTo open it from other devices, install Tailscale on this computer and run `npx t3-bridge link`.");
   }
 }
 
@@ -118,7 +119,7 @@ async function install() {
   }
   const config = await waitForPanel();
   await progress({ state: "done", step: "Done", finishedAt: new Date().toISOString() });
-  console.log(`T3 Bridge ${BRIDGE_VERSION} is running in the background and starts at login.`);
+  console.log(`T3 Bridge ${BRIDGE_VERSION} is running in the background and starts at ${Service.startsWith}.`);
   console.log(`Logs: ${Service.logFile}`);
   if (config !== null) printLinks(config);
 }
@@ -141,7 +142,7 @@ async function waitForPanel() {
 
 async function status() {
   const config = await readConfig();
-  if (config === null) return void console.log("T3 Bridge has not been set up on this Mac yet. Run: npx t3-bridge install");
+  if (config === null) return void console.log("T3 Bridge has not been set up on this computer yet. Run: npx t3-bridge install");
   const response = await fetch(`http://127.0.0.1:${config.controlPort}/api/status`, {
     headers: { authorization: `Bearer ${config.controlToken}` },
   }).catch(() => null);
@@ -165,6 +166,7 @@ async function status() {
 
 async function main() {
   const command = positionals[0] ?? "run";
+  if (process.env.T3_BRIDGE_DATA === undefined) Service.moveLegacyData(process.platform, OS.homedir(), dataDir);
   if (flags.version) return void console.log(BRIDGE_VERSION);
   if (flags.help || command === "help") return void console.log(HELP);
   switch (command) {
@@ -174,10 +176,10 @@ async function main() {
       return install();
     case "uninstall":
       Service.uninstall();
-      return void console.log(`T3 Bridge stopped and removed from login. Your bots and settings stay in ${dataDir}.`);
+      return void console.log(`T3 Bridge stopped and removed from startup. Your bots and settings stay in ${dataDir}.`);
     case "link": {
       const config = await readConfig();
-      if (config === null) return void console.log("T3 Bridge has not been set up on this Mac yet. Run: npx t3-bridge install");
+      if (config === null) return void console.log("T3 Bridge has not been set up on this computer yet. Run: npx t3-bridge install");
       return printLinks(config);
     }
     case "status":

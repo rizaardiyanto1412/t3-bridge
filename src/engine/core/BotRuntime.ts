@@ -1158,7 +1158,7 @@ export function toMillis(value: unknown): number {
     : Number.NaN;
 }
 
-/** The bridge runs on the same Mac as T3, so a file the agent saved there is read directly. */
+/** The bridge runs on the same computer as T3, so a file the agent saved there is read directly. */
 async function readLocalFile(path: string): Promise<{ bytes: Buffer; mimeType: string }> {
   const mimeType = LOCAL_FILE_MIME[Path.extname(path).toLowerCase()];
   if (mimeType === undefined) throw new Error(`${path} is not a media file`);

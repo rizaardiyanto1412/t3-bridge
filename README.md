@@ -13,29 +13,29 @@ T3 Code ever changes its protocol, the bridge shows "Update T3 Bridge" instead o
 
 This is an independent project, not made or supported by T3 Tools.
 
-Requirements: macOS with T3 Code running, Node.js 22.18 or newer, and optionally
+Requirements: macOS or Linux with T3 Code running, Node.js 22.18 or newer, and optionally
 [Tailscale](https://tailscale.com) to open the control panel from other devices.
 
 ## Install
 
-On the Mac that runs T3 Code (over SSH works too):
+On the computer that runs T3 Code (over SSH works too):
 
 ```sh
 npx t3-bridge install
 ```
 
-T3 Bridge now runs in the background, starts at login, and pairs with T3 Code by itself. The
+T3 Bridge now runs in the background, starts with the computer, and pairs with T3 Code by itself. The
 command prints the control panel link, `http://<tailscale-ip>:47821/#token=…`. Open it in any
 browser on your Tailscale network, your phone included, and bookmark it. Everything else,
 adding bots included, happens in that page. The link works like a password.
 
-With T3 Code on more than one Mac, run the same command on each Mac whose threads you want in
-chat, and bookmark each link. On a single Mac without Tailscale, open the `127.0.0.1` link.
+With T3 Code on more than one computer, run the same command on each one whose threads you want in
+chat, and bookmark each link. On a single computer without Tailscale, open the `127.0.0.1` link.
 
 | Command | |
 |---|---|
 | `npx t3-bridge` | Run in the terminal instead of in the background |
-| `npx t3-bridge install` | Run in the background, starting at login |
+| `npx t3-bridge install` | Run in the background, starting at login (macOS) or boot (Linux) |
 | `npx t3-bridge uninstall` | Stop and remove the background service; bots and settings are kept |
 | `npx t3-bridge link` | Print the control panel link again |
 | `npx t3-bridge status` | Show whether T3 Code and the bots are connected |
@@ -49,8 +49,16 @@ for its settings: name, thread, who may use it, instructions, and its Slack, Dis
 Telegram tokens.
 
 To update, open **Settings** in the panel and choose **Update**, or run
-`npx t3-bridge@latest install`. Settings live in `~/Library/Application Support/T3 Bridge` and
-logs in `~/Library/Logs/T3 Bridge.log`.
+`npx t3-bridge@latest install`.
+
+| | Settings | Logs |
+|---|---|---|
+| macOS | `~/Library/Application Support/T3 Bridge` | `~/Library/Logs/T3 Bridge.log` |
+| Linux | `~/.local/share/t3-bridge` | `~/.local/state/t3-bridge/bridge.log` |
+
+On macOS the service is a launchd agent that starts at login. On Linux it is a systemd user
+service, `t3-bridge.service`; install turns on lingering for your user so it starts at boot and
+keeps running after you log out. If that needs an administrator, install prints the command.
 
 **Replace link** under **Settings → Open from other devices** issues a new link; every old copy
 stops working. The QR code next to it, also behind the QR button on the home page, opens the
@@ -137,7 +145,7 @@ continue that request; start a new message for a new one.
   goes for a reply to someone else's message, and a mention in a Discord thread brings what was
   said there since the bot last spoke.
 - Images go both ways: pictures you attach in Slack reach the agent, and screenshots or images
-  the agent shows (including ones it saved on the Mac) are uploaded to the thread.
+  the agent shows (including ones it saved on the computer) are uploaded to the thread.
 - HTML pages the agent renders arrive as an `.html` file.
 - Messages typed in T3 itself also show up in Slack, marked _Sent from T3_.
 - Every message reaches T3 tagged with its thread, e.g. `[Slack · Riza · thread "Check Pro PRs"]`,
@@ -150,7 +158,7 @@ continue that request; start a new message for a new one.
 - Send `!new` (or use **New thread** on the bot's card) to start a fresh orchestrator thread with
   the same project, model and instructions when the current one has grown long.
 
-Only allowed people can send work. The bot runs code on your Mac, so keep that list short.
+Only allowed people can send work. The bot runs code on your computer, so keep that list short.
 
 ## Project memory
 

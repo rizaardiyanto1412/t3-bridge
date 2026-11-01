@@ -24,7 +24,7 @@ export interface RenderContext {
   readonly requests: ReadonlyMap<string, OrchestrationV2RuntimeRequest>;
   /** Messages the bridge itself sent; they are not echoed back to chat. */
   readonly sentByBridge: (messageId: string) => boolean;
-  /** A media file on this Mac that the agent referenced by path. */
+  /** A media file on this computer that the agent referenced by path. */
   readonly localFile: (path: string) => ImageRef;
   readonly attachmentImage: (attachment: {
     id: string;

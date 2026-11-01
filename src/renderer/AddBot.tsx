@@ -505,7 +505,7 @@ export function AddBot(props: {
           <div className="grow" />
           <div className="tip">
             <div className="eyebrow lime-text">Good to know</div>
-            <p>The bot runs code on your Mac. Only people you allow can send it work.</p>
+            <p>The bot runs code on your computer. Only people you allow can send it work.</p>
           </div>
         </aside>
         {card}
