@@ -25,7 +25,7 @@ export function App() {
   if (api === null) {
     return (
       <Notice title="Open this page with its link">
-        On the Mac running T3 Bridge, run <code>npx t3-bridge link</code> and open the link it prints.
+        On the computer running T3 Bridge, run <code>npx t3-bridge link</code> and open the link it prints.
         It looks like <code>http://100.x.y.z:47821/#token=…</code>
       </Notice>
     );
@@ -87,7 +87,7 @@ function Shell({ api }: { api: Api }) {
       <Notice title="Can't reach T3 Bridge">
         <p className="error-text">{error}</p>
         <p className="muted">
-          Check that the Mac running it is on, and that this device is on the same Tailscale network.
+          Check that the computer running it is on, and that this device is on the same Tailscale network.
         </p>
       </Notice>
     ) : (

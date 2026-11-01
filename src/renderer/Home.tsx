@@ -109,7 +109,7 @@ function Health({ status }: { status: Status }) {
     {
       label: "Tailscale",
       tone: status.connectLinks.length > 0 ? "ok" : "off",
-      title: status.connectLinks.length > 0 ? "Open the panel from any device on your tailnet" : "No Tailscale address: only this Mac can open the panel",
+      title: status.connectLinks.length > 0 ? "Open the panel from any device on your tailnet" : "No Tailscale address: only this computer can open the panel",
     },
     { label: `v${status.version}`, tone: "ok", title: "T3 Bridge version" },
   ];

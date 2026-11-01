@@ -104,7 +104,7 @@ async function mintPairingCredential(
 }
 
 async function findT3Cli(baseDir: string): Promise<string> {
-  // launchd starts the bridge with a minimal PATH, and ~/.t3/bin/t3 can point at a desktop
+  // The service starts the bridge with a minimal PATH, and ~/.t3/bin/t3 can point at a desktop
   // app that moved. The server that is running right now is the most reliable CLI to use.
   const candidates = [
     await runningServerExecutable(baseDir),
@@ -123,7 +123,7 @@ async function findT3Cli(baseDir: string): Promise<string> {
       continue;
     }
   }
-  throw new Error("Could not find the t3 command on this Mac. Is T3 Code installed here?");
+  throw new Error("Could not find the t3 command on this computer. Is T3 Code installed here?");
 }
 
 async function runningServerExecutable(baseDir: string): Promise<string | null> {

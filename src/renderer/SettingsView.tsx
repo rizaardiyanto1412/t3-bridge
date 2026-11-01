@@ -12,7 +12,7 @@ export function SettingsView({ api, status }: { api: Api; status: Status }) {
       <div className="settings-grid">
         <OtherDevices api={api} status={status} />
         <div className="side">
-          <ThisMac status={status} />
+          <ThisComputer status={status} />
           <Updates api={api} version={status.version} />
         </div>
         <RawLog api={api} />
@@ -33,7 +33,7 @@ function OtherDevices({ api, status }: { api: Api; status: Status }) {
         <h2 className="dark-title big">Open from other devices</h2>
         {link === undefined ? (
           <p>
-            This Mac has no Tailscale address, so only this Mac can open the panel. Install Tailscale, then run{" "}
+            This computer has no Tailscale address, so only this computer can open the panel. Install Tailscale, then run{" "}
             <code>npx t3-bridge link</code>.
           </p>
         ) : (
@@ -68,13 +68,13 @@ function OtherDevices({ api, status }: { api: Api; status: Status }) {
   );
 }
 
-function ThisMac({ status }: { status: Status }) {
+function ThisComputer({ status }: { status: Status }) {
   const t3 = status.t3;
   const link = status.connectLinks[0];
   const address = link ? new URL(link).hostname : null;
   return (
     <section className="card small-card">
-      <h2 className="small-title">This Mac</h2>
+      <h2 className="small-title">This computer</h2>
       <div className="kv">
         <span>Computer</span>
         <b>{t3.label || location.hostname}</b>

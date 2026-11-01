@@ -54,7 +54,7 @@ export interface ControlServerOptions {
 }
 
 /**
- * The control panel's API, used by the panel in a browser on this Mac or another device on
+ * The control panel's API, used by the panel in a browser on this computer or another device on
  * the tailnet; every /api call needs the bridge's control token.
  */
 export class ControlServer {
@@ -73,7 +73,7 @@ export class ControlServer {
     this.options.engine.log.info(
       `Control panel on ${this.hosts.map((host) => `http://${host}:${port}`).join(", ")}`,
     );
-    // After a power cut the Mac can start the bridge before Tailscale is up. Keep looking
+    // After a power cut the computer can start the bridge before Tailscale is up. Keep looking
     // for a tailnet address until the panel listens on one, then stop.
     if (!this.onTailnet()) {
       this.tailnetWatch = setInterval(() => void this.joinTailnet(port), TAILNET_RETRY_MS);
