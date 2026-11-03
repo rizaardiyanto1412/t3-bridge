@@ -19,11 +19,11 @@ async function setup() {
   const dataDir = await FS.mkdtemp(Path.join(OS.tmpdir(), "t3-bridge-runtime-"));
   dirs.push(dataDir);
   const memoryDir = Path.join(dataDir, "memory");
-  const dispatched: Array<{ text: string; attachments: unknown[] }> = [];
+  const dispatched: Array<{ messageId: string; text: string; attachments: unknown[] }> = [];
   const uploaded: string[] = [];
   const replies: string[] = [];
   const posts: OutboundPost[] = [];
-  const upserts: Array<{ post: OutboundPost; edit: boolean }> = [];
+  const upserts: Array<{ post: OutboundPost; edit: boolean; threadTs: string | undefined }> = [];
   let postCount = 0;
   let feed: ((item: unknown) => Promise<void>) | null = null;
   const t3 = {
@@ -31,9 +31,18 @@ async function setup() {
       feed = input.onItem;
       return () => {};
     },
-    dispatch: async (command: { type: string; text?: string; attachments?: unknown[] }) => {
+    dispatch: async (command: {
+      type: string;
+      messageId?: string;
+      text?: string;
+      attachments?: unknown[];
+    }) => {
       if (command.type === "message.dispatch")
-        dispatched.push({ text: command.text ?? "", attachments: command.attachments ?? [] });
+        dispatched.push({
+          messageId: command.messageId ?? "",
+          text: command.text ?? "",
+          attachments: command.attachments ?? [],
+        });
       return { sequence: 1 };
     },
     uploadAttachment: async (input: { name: string }) => {
@@ -45,9 +54,9 @@ async function setup() {
     mentionHint: "write @Name to notify someone",
     start: async () => {},
     stop: async () => {},
-    upsert: async (_conversation, post, existing) => {
+    upsert: async (conversation, post, existing) => {
       posts.push(post);
-      upserts.push({ post, edit: existing !== null });
+      upserts.push({ post, edit: existing !== null, threadTs: conversation.threadTs });
       postCount += 1;
       return existing ?? { ts: `posted-${postCount}` };
     },
@@ -338,6 +347,94 @@ describe("BotRuntime wake-ups", () => {
         { id: "e2e", status: "completed" },
       ],
     });
+    await runtime.stop();
+  });
+
+  const tool = (id: string, runId: string, toolName: string, input: unknown, output: unknown) =>
+    event("turn-item.updated", {
+      type: "dynamic_tool",
+      id,
+      runId,
+      status: "completed",
+      toolName,
+      input,
+      output,
+      updatedAt: later(1000),
+    });
+  const message = (id: string, fields: object) => event("message.updated", { id, ...fields });
+  const delegated = (id: string, runId: string, startedAt: string) =>
+    event("subagent.updated", {
+      id,
+      runId,
+      parentNodeId: `root-${runId}`,
+      childThreadId: "child-mcp",
+      title: "One-click MCP setup",
+      prompt: "Set it up",
+      model: "claude-opus-5-5",
+      status: "completed",
+      progress: null,
+      result: "Done.",
+      startedAt,
+      updatedAt: later(1000),
+    });
+  const threadOf = (
+    upserts: Array<{ post: OutboundPost; threadTs: string | undefined }>,
+    text: string,
+  ) =>
+    upserts.find(({ post }) => post.kind === "assistant" && post.markdown === text)?.threadTs;
+
+  it("posts what a launched thread, a scheduled task or a watched PR reports in the thread that started it", async () => {
+    const { runtime, dispatched, upserts, feed } = await setup();
+    await runtime.handleMessage(direct("Run the MCP program", "200.000"));
+    await feed(run("run-mcp", dispatched[0]!.messageId, "completed"));
+    await feed(tool("t-1", "run-mcp", "mcp__t3-code__t3_thread_launch", {}, { content: '{"threadId":"owner-1"}' }));
+    await feed(tool("t-2", "run-mcp", "t3-code.schedule_task", {}, { scheduledTaskId: "tick-1" }));
+    await feed(
+      tool("t-3", "run-mcp", "mcp__t3-code__watch_pull_request", { url: "https://github.com/acme/app/pull/316" }, {}),
+    );
+
+    // Someone starts another request; the thread, the task and the PR still report to the first.
+    await runtime.handleMessage(direct("Write the docs", "300.000"));
+    await feed(run("run-docs", dispatched[1]!.messageId, "completed"));
+    const origins = {
+      "m-owner": { senderThreadId: "owner-1" },
+      "m-tick": { scheduledTaskId: "tick-1" },
+      "m-pr": {
+        notification: { source: { kind: "monitor" }, outcome: "completed", summary: "#316: checks passed" },
+        text: "Update on pull request #316 (https://github.com/acme/app/pull/316), which T3 Code is watching:",
+      },
+    };
+    for (const [id, fields] of Object.entries(origins)) {
+      await feed(message(id, fields));
+      await feed(run(`run-${id}`, id, "completed"));
+      await feed(reply(`a-${id}`, `run-${id}`, `Report from ${id}`));
+    }
+    await settle();
+    for (const id of Object.keys(origins)) expect(threadOf(upserts, `Report from ${id}`)).toBe("200.000");
+    await runtime.stop();
+  });
+
+  it("posts a follow-up to a subagent, sent while handling other work, in the subagent's thread", async () => {
+    const { runtime, dispatched, upserts, feed } = await setup();
+    await runtime.handleMessage(direct("Give me an update on MCP", "200.000"));
+    await feed(run("run-mcp", dispatched[0]!.messageId, "completed"));
+    await feed(delegated("task-1", "run-mcp", "2026-10-29T05:31:00.000Z"));
+    await runtime.handleMessage(direct("Add Memberful to the compare page", "300.000"));
+    await feed(run("run-compare", dispatched[1]!.messageId, "completed"));
+
+    // Handling the compare request's wake-up, the orchestrator sends the MCP subagent a follow-up.
+    await feed(delegated("task-2", "run-compare", "2026-10-29T06:05:00.000Z"));
+    await feed(
+      message("m-wake", {
+        delegatedCompletion: { parentRunId: "run-compare", generation: 1, taskIds: ["task-2"] },
+      }),
+    );
+    await feed(run("run-wake", "m-wake", "completed"));
+    await feed(reply("a-wake", "run-wake", "PR #310 is ready"));
+    await settle();
+    expect(threadOf(upserts, "PR #310 is ready")).toBe("200.000");
+    const cards = upserts.filter(({ post }) => post.kind === "subagents");
+    expect(new Set(cards.map(({ threadTs }) => threadTs))).toEqual(new Set(["200.000"]));
     await runtime.stop();
   });
 });

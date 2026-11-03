@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     "./htmlRender": "./src/htmlRender.ts",
-    "./toolOutput": "./src/toolOutput.ts"
+    "./toolOutput": "./src/toolOutput.ts",
+    "./t3McpToolPresentation": "./src/t3McpToolPresentation.ts"
   },
   "dependencies": {
     "@t3tools/contracts": "workspace:*",
