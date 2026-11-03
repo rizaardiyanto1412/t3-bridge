@@ -1,5 +1,5 @@
 // Refreshes vendor/t3code from a T3 Code checkout: the protocol contracts the bridge speaks,
-// plus the few shared helpers it uses for HTML renders. Run it when T3 Code changes its
+// plus the few shared helpers it uses for HTML renders and tool results. Run it when T3 Code changes its
 // protocol, then rebuild:
 //   node scripts/sync-t3code.mjs ~/Code/t3code
 import * as ChildProcess from "node:child_process";
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const root = Path.resolve(Path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = Path.resolve(process.argv[2] ?? Path.join(root, "..", "t3code"));
 const vendor = Path.join(root, "vendor", "t3code");
-const SHARED_ENTRIES = ["htmlRender.ts", "toolOutput.ts"];
+const SHARED_ENTRIES = ["htmlRender.ts", "toolOutput.ts", "t3McpToolPresentation.ts"];
 
 if (!FS.existsSync(Path.join(source, "packages", "contracts", "src", "index.ts"))) {
   throw new Error(`${source} is not a T3 Code checkout`);

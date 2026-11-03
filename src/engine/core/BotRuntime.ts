@@ -3,6 +3,8 @@ import * as FS from "node:fs/promises";
 import * as Path from "node:path";
 
 import { injectHtmlRenderBootstrap } from "@t3tools/shared/htmlRender";
+import { resolveT3McpToolId } from "@t3tools/shared/t3McpToolPresentation";
+import { compactDynamicToolOutput } from "@t3tools/shared/toolOutput";
 import * as DateTime from "effect/DateTime";
 
 import {
@@ -109,6 +111,18 @@ interface BotState {
 }
 
 const MAX_RECORDS = 1500;
+/** T3 tools whose result names a thread, task or pull request that later messages the orchestrator. */
+const ORIGIN_TOOLS = new Set([
+  "t3_thread_launch",
+  "create_threads",
+  "t3_thread_send",
+  "t3_thread_send_attachments",
+  "schedule_task",
+  "watch_pull_request",
+  "link_pull_request",
+  "link_pull_requests",
+]);
+const PULL_REQUEST_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
 /** How often a reply that is still being written is pushed to chat; native streams take more. */
 const STREAM_EDIT_INTERVAL_MS = 1500;
 const NATIVE_STREAM_INTERVAL_MS = 700;
@@ -172,6 +186,14 @@ export class BotRuntime {
   private readonly desired = new Map<string, { post: OutboundPost; runId: string | null }>();
   /** Wake-up messages T3 sends when delegated work finishes, mapped to the run that delegated it. */
   private readonly wakeParents = new Map<string, string>();
+  /** The delegated tasks each wake-up message reports on. */
+  private readonly wakeTasks = new Map<string, ReadonlyArray<string>>();
+  /** The first subagent that ran in each delegated child thread; follow-ups continue its work. */
+  private readonly firstDelegations = new Map<string, OrchestrationV2Subagent>();
+  /** Messages another T3 thread, a scheduled task or a pull request watch sent, mapped to it. */
+  private readonly messageOrigins = new Map<string, string>();
+  /** The chat thread of the run that last addressed each T3 thread, task or pull request. */
+  private readonly originThreads = new Map<string, ConversationRef>();
   /** Wake-up replies held until their run ends, when it is known whether work is still going. */
   private readonly heldReplies = new Map<string, OrchestrationV2TurnItem>();
   private readonly lastEditAt = new Map<string, number>();
@@ -379,6 +401,7 @@ export class BotRuntime {
     if (item.type === "approval_request" || item.type === "user_input_request") {
       this.main.requestItems.set(item.requestId, item);
     }
+    this.trackOrigin(item);
     if (
       !this.isNew(item.updatedAt) &&
       !(fromSnapshot && this.state.posts[keyOf(item)] !== undefined)
@@ -442,8 +465,8 @@ export class BotRuntime {
     let current = runId;
     for (let depth = 0; depth < 16; depth += 1) {
       const run = this.runs.get(current);
-      const parent = run === undefined ? undefined : this.wakeParents.get(run.userMessageId);
-      if (parent === undefined) return current;
+      const parent = run === undefined ? null : this.wakeParent(run.userMessageId);
+      if (parent === null) return current;
       current = parent;
     }
     return current;
@@ -452,16 +475,44 @@ export class BotRuntime {
   /** Whether any subagent started for the same request as this run is still working. */
   private requestBusy(runId: string) {
     const root = this.rootRun(runId);
-    return [...this.subagents.values()].some(
-      (subagent) =>
-        subagent.runId !== null &&
+    return [...this.subagents.values()].some((subagent) => {
+      const runId = this.taskRunId(subagent);
+      return (
+        runId !== null &&
         ["pending", "running", "waiting"].includes(subagent.status) &&
-        this.rootRun(subagent.runId) === root,
-    );
+        this.rootRun(runId) === root
+      );
+    });
+  }
+
+  /**
+   * The run a subagent works for. A follow-up sent to a delegated thread is recorded under
+   * whichever run sent it, often a wake-up for unrelated work; it continues the first task.
+   */
+  private taskRunId(subagent: OrchestrationV2Subagent): string | null {
+    const first =
+      subagent.childThreadId === null ? undefined : this.firstDelegations.get(subagent.childThreadId);
+    return first?.runId ?? subagent.runId;
+  }
+
+  /** The run a wake-up reports back to: the one whose delegated work just finished. */
+  private wakeParent(messageId: string): string | null {
+    for (const taskId of this.wakeTasks.get(messageId) ?? []) {
+      const subagent = this.subagents.get(taskId);
+      const runId = subagent === undefined ? null : this.taskRunId(subagent);
+      if (runId !== null) return runId;
+    }
+    return this.wakeParents.get(messageId) ?? null;
   }
 
   private trackSubagent(subagent: OrchestrationV2Subagent, fromSnapshot: boolean) {
     this.subagents.set(subagent.id, subagent);
+    const childThreadId = subagent.childThreadId;
+    if (childThreadId !== null) {
+      const first = this.firstDelegations.get(childThreadId);
+      if (first === undefined || first.id === subagent.id || startOf(subagent) < startOf(first))
+        this.firstDelegations.set(childThreadId, subagent);
+    }
     if (subagent.status === "completed" && subagent.result && this.isNew(subagent.updatedAt))
       void this.saveFacts(
         `s:${subagent.id}`,
@@ -470,7 +521,8 @@ export class BotRuntime {
       );
     // In agent layout all subagents of one request, including those its wake-ups start,
     // share a single plan in its thread.
-    const root = subagent.runId === null ? null : this.rootRun(subagent.runId);
+    const runId = this.taskRunId(subagent);
+    const root = runId === null ? null : this.rootRun(runId);
     const grouped = this.options.threaded && root !== null;
     const key = grouped ? `g:${root}` : `s:${subagent.id}`;
     const hidden = isInsideNativeSubagent(subagent, this.main.nodes);
@@ -482,16 +534,18 @@ export class BotRuntime {
         ? {
             kind: "subagents",
             tasks: [...this.subagents.values()]
-              .filter(
-                (candidate) =>
-                  candidate.runId !== null &&
-                  this.rootRun(candidate.runId) === root &&
-                  !isInsideNativeSubagent(candidate, this.main.nodes),
-              )
+              .filter((candidate) => {
+                const candidateRun = this.taskRunId(candidate);
+                return (
+                  candidateRun !== null &&
+                  this.rootRun(candidateRun) === root &&
+                  !isInsideNativeSubagent(candidate, this.main.nodes)
+                );
+              })
               .map(subagentTask),
           }
         : subagentPost(subagent);
-      this.enqueue({ key, post }, subagent.runId);
+      this.enqueue({ key, post }, runId);
     }
     this.syncChildSubscription(subagent);
   }
@@ -512,10 +566,15 @@ export class BotRuntime {
         threadId: childThreadId,
         afterSequence: () => undefined,
         onItem: async (item) =>
-          this.handleChildItem(childThreadId, model, source, subagent.runId, item),
+          this.handleChildItem(childThreadId, model, source, this.taskRunId(subagent), item),
         onError: () => {},
       });
-      this.children.set(childThreadId, { model, unsubscribe, source, runId: subagent.runId });
+      this.children.set(childThreadId, {
+        model,
+        unsubscribe,
+        source,
+        runId: this.taskRunId(subagent),
+      });
     } else if (!active && existing !== undefined) {
       existing.unsubscribe();
       this.children.delete(childThreadId);
@@ -581,8 +640,42 @@ export class BotRuntime {
   }
 
   private trackMessage(message: OrchestrationV2ConversationMessage) {
-    const parentRunId = message.delegatedCompletion?.parentRunId;
-    if (parentRunId !== undefined) this.wakeParents.set(message.id, parentRunId);
+    const completion = message.delegatedCompletion;
+    if (completion !== undefined) {
+      this.wakeParents.set(message.id, completion.parentRunId);
+      this.wakeTasks.set(message.id, completion.taskIds);
+    }
+    const origin =
+      message.senderThreadId ??
+      message.scheduledTaskId ??
+      (message.notification?.source.kind === "monitor"
+        ? pullRequestKeys(message.text.split("\n", 1)[0]!)[0]
+        : undefined);
+    if (origin !== undefined) this.messageOrigins.set(message.id, origin);
+  }
+
+  /**
+   * Threads the orchestrator launches or messages, tasks it schedules and pull requests it
+   * watches report back with messages of their own. Their replies belong in the chat thread
+   * of the run that last addressed them, not wherever someone last wrote.
+   */
+  private trackOrigin(item: OrchestrationV2TurnItem) {
+    if (item.type !== "dynamic_tool" || item.status !== "completed" || item.runId === null) return;
+    const tool = resolveT3McpToolId(item.toolName);
+    if (tool === null || !ORIGIN_TOOLS.has(tool)) return;
+    const output = compactDynamicToolOutput(item.output);
+    if (output?.isError) return;
+    const ids = [
+      output?.threadId,
+      output?.thread?.threadId,
+      output?.scheduledTaskId,
+      ...(output?.threads ?? []).map((thread) => thread.threadId),
+      ...(tool.includes("pull_request") ? pullRequestKeys(JSON.stringify(item.input) ?? "") : []),
+    ].filter((id): id is string => id !== undefined);
+    if (ids.length === 0) return;
+    const conversation = this.runThread(item.runId);
+    if (conversation === null) return;
+    for (const id of ids) this.originThreads.set(id, conversation);
   }
 
   private enqueue(keyed: KeyedPost, runId: string | null) {
@@ -619,13 +712,14 @@ export class BotRuntime {
         }
         return;
       }
-      current = this.wakeParents.get(run.userMessageId) ?? null;
+      current = this.wakeParent(run.userMessageId);
     }
   }
 
   /**
    * The chat thread a run's output belongs in: the thread of the chat message that started
-   * it, the thread under a message typed in T3, or, for the summary T3 asks for after
+   * it, the thread under a message typed in T3, the thread of the run that addressed the T3
+   * thread, task or pull request that sent it, or, for the summary T3 asks for after
    * delegated work finishes, the thread of the run that delegated it.
    */
   private runThread(runId: string | null): ConversationRef | null {
@@ -643,7 +737,10 @@ export class BotRuntime {
       }
       const echo = this.state.posts[`u:${run.userMessageId}`];
       if (echo?.ref.ts !== undefined) return { ...echo.conversation, threadTs: echo.ref.ts };
-      current = this.wakeParents.get(run.userMessageId) ?? null;
+      const origin = this.messageOrigins.get(run.userMessageId);
+      const originThread = origin === undefined ? undefined : this.originThreads.get(origin);
+      if (originThread !== undefined) return originThread;
+      current = this.wakeParent(run.userMessageId);
     }
     return null;
   }
@@ -1240,6 +1337,19 @@ function keyOf(item: OrchestrationV2TurnItem): string {
     default:
       return `x:${item.id}`;
   }
+}
+
+/** When a subagent started; one still pending sorts after every started one. */
+function startOf(subagent: OrchestrationV2Subagent): number {
+  const at = toMillis(subagent.startedAt);
+  return Number.isNaN(at) ? Infinity : at;
+}
+
+/** Pull requests linked in the text, as `owner/repo#number`. */
+function pullRequestKeys(text: string): string[] {
+  return [...text.matchAll(PULL_REQUEST_URL)].map(
+    (match) => `pr:${match[1]!.toLowerCase()}#${match[2]}`,
+  );
 }
 
 function requestIdOf(item: OrchestrationV2TurnItem): string {
